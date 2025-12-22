@@ -138,6 +138,14 @@ def get_biggest_tile_rect_green_red(crds: np.ndarray) -> tuple[tuple[int, int], 
         else:
             raise ValueError("line is diagonal")
 
+    def make_box(l1, l2):
+        xmin = min(l1[0][0], l1[1][0], l2[0][0], l2[1][0])
+        xmax = max(l1[0][0], l1[1][0], l2[0][0], l2[1][0])
+        ymin = min(l1[0][1], l1[1][1], l2[0][1], l2[1][1])
+        ymax = max(l1[0][1], l1[1][1], l2[0][1], l2[1][1])
+
+        return ((xmin, ymin), (xmax, ymax))
+
     def cut_to_rects(points: np.ndarray, cut_dir: int = 1) -> list[tuple[tuple[int, int], tuple[int, int]]]:
 
         cut_dir_vert = 1 if cut_dir == 0 else 0
@@ -172,8 +180,8 @@ def get_biggest_tile_rect_green_red(crds: np.ndarray) -> tuple[tuple[int, int], 
                                 lines = [(l[0],             (cp[0], l[0][1])),
                                          ((cp[0], l[0][1]),  l[1])]
                             else:
-                                lines = [(l[0],             (l[0][0], cp[1])),
-                                         ((l[0][0], cp[1]),  l[1])]
+                                lines = [(l[0],            (l[0][0], cp[1])),
+                                         ((l[0][0], cp[1]), l[1])]
                         else:
                             lines = [l]
 
@@ -183,27 +191,22 @@ def get_biggest_tile_rect_green_red(crds: np.ndarray) -> tuple[tuple[int, int], 
                                 subbox_lines.update({ckey: set()})
                             subbox_lines[ckey].add(l)
 
-        def make_box(l1, l2, cdv):
-            if cdv == 0:
-                pass
-            else:
-                pass
-
         subboxes = []
         for k in list(subbox_lines.keys()):
             lines = subbox_lines.pop(k)
 
             # remove lines bigger than subbox, they are already broken up
             lmin = min([l[1][cut_dir_vert] for l in lines])
-            bl = [l for l in lines if l[1][cut_dir_vert] <= lmin]
+            bl = [l for l in lines if l[1][cut_dir_vert] == lmin]
 
             if len(bl) % 2 == 1:
-                subboxes.append(make_box(l, ln, cut_dir_vert))
+                print(k, bl)
+                subboxes.append(make_box(bl[0], bl[0]))
             else:
                 for i in range(0, len(bl), 2):
                     l, ln = bl[i], bl[i+1]
-                    subboxes.append(make_box(l, ln, cut_dir_vert))
-                
+                    subboxes.append(make_box(l, ln))
+        
         for s in subboxes:
             print(s)
 
