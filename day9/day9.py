@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 
 DAY = 9
 
@@ -88,8 +89,46 @@ def get_biggest_tile_rect(crds: np.ndarray) -> tuple[tuple[int, int], tuple[int,
 ''' PART 2'''
 
 
-def get_bounding_box(crds: np.ndarray) -> tuple[tuple[int, int], tuple[int, int]]:
-    return (min(crds[:, 0]), max(crds[:, 0])), (min(crds[:, 1]), max(crds[:, 1]))
+def get_bounding_box(crds: np.ndarray) -> np.ndarray:
+    return np.array([(min(crds[:, 0]), min(crds[:, 1])), (max(crds[:, 0]), max(crds[:, 1]))], dtype=int)
+
+
+def inner_point(c, bb) -> bool:
+
+    return c[1] not in bb[1] and c[0] not in bb[0]
+
+
+def bb_point(c, bb) -> bool:
+
+    return not inner_point(c, bb)
+
+
+def is_in_rect(c1: np.ndarray, c2: np.ndarray, p: np.ndarray, include_borders: bool = False) -> bool:
+    # check if p3 is within the rectangle build by corners c1 and c2
+    bb = get_bounding_box(np.array([c1, c2]))
+    if include_borders:
+        return (bb[0, 0] <= p[0] and p[0] <= bb[1, 0]) and (bb[0, 1] <= p[1] and p[1] <= bb[1, 1])
+    else:
+        return (bb[0, 0] < p[0] and p[0] < bb[1, 0]) and (bb[0, 1] < p[1] and p[1] < bb[1, 1])
+
+
+def get_orientation(l) -> int:
+    if l[0][0] == l[1][0]:
+        return 1
+    elif l[0][1] == l[1][1]:
+        return 0
+    else:
+        raise ValueError("line is diagonal")
+
+
+def line_cuts_rect(p1: np.ndarray, p2: np.ndarray, l: np.ndarray) -> bool:
+    bb = get_bounding_box(np.array((p1, p2)))
+    bl = get_bounding_box(l)
+    o = get_orientation(l)
+    no = 0 if o == 1 else 1
+    return (bl[0, o] < bb[0, o] and bb[0, o] < bl[1, o] or
+            bl[0, o] < bb[1, o] and bb[1, o] < bl[1, o]) and \
+           (bb[0, no] < bl[0, no] and bl[0, no] < bb[1, no])
 
 
 def get_biggest_tile_rect_green_red(crds: np.ndarray) -> tuple[tuple[int, int], tuple[int, int], int]:
@@ -97,119 +136,136 @@ def get_biggest_tile_rect_green_red(crds: np.ndarray) -> tuple[tuple[int, int], 
     if crds.shape[1] < 2:
         raise ValueError("At least 2 corners must be provided")
 
-    # # lexicographic sort in x and y direction
-    # cxsrt = crds[np.lexsort(crds.T)]
-    # cysrt = crds[np.lexsort(crds[:,::-1].T)]
-    # ux = np.unique(cxsrt[:, 1])
-    # uy = np.unique(cysrt[:, 0])
+    """
+    picture possible quadrants of opposing rectangle corner
+    --------------------------------------
+    convex corner         / concave corner
+    \/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/\/
+    xxxxxxxxx|xxxxxxxxx   /          |xxxxxxxxx
+    xxx 3 xxx|xxx 0 xxx   \     3    |xxx 0 xxx
+    xxxxxxxxx|xxxxxxxxx   /          |xxxxxxxxx
+    ---------c--------->  \ ---------c--------->
+             |xxxxxxxxx   /          |        
+        2    |xxx 1 xxx   \     2    |    1   
+             |xxxxxxxxx   /          |        
+             v            \          v
+    """
 
-    # # divide the edge points into rectangles
-    # # there always has to be a multiple of 2 red tiles per row or column
-    # # edges are from the odd to the even index of a tile in row/column,
-    # # e.g. 1 -- 2     3 -- 4     5 -- 6 ...
-    # lx, ly = [], []
-    # for x in ux:
-    #     r = cxsrt[cxsrt[:, 0] == x]
-    #     for i in range(0, r.shape[0], 2):
-    #         lx.append((r[i], r[i+1]))
+    # clock         | ^->   | ->|   |  3|   | ^ 0   |
+    # wise          | |1    | 2 v   | <-v   | |<-   |
+    # -----------------------------------------------
+    #               | (0,-1)| (1, 0)| (0, 1)|(-1, 0)|
+    #               | (1, 0)| (0, 1)| (-1,0)|( 0,-1)|
+    # -----------------------------------------------
+    # counter-clock |3|     |   ^   |  3 0  |3 0   |
+    # wise          |2v->   | ->|0  | <-^   |2|<-  |
+    #               |  1    | 2  1  |   |1  | v    |
+    # -----------------------------------------------
+    #               | (0, 1)| (1, 0)| (0,-1)|(0, -1)|
+    #               | (1, 0)| (0, 1)| (-1,0)|(-1, 0)|
 
-    def inner_point(c, bb) -> bool:
-        return c[1] not in bb[1] and c[0] not in bb[0]
+    convex_corners = np.array((
+        (-1, 0),
+        (0, -1),
+        (1,  0),
+        (0,  1),
+        (-1, 0),
+    ))
 
-    def bb_point(c, bb) -> bool:
-        return not inner_point(c, bb)
+    concave_corners = np.array((
+        (0,  1),
+        (1,  0),
+        (0, -1),
+        (-1, 0),
+        (0,  1),
+    ))
 
-    def cuts_line(c: int, l: tuple[tuple[int, int], tuple[int, int]], d: int = 1) -> tuple[int, int]:
-        if int(l[0][0]) != int(l[1][0]) and int(l[0][1]) != int(l[1][1]):
-            raise ValueError("line is diagonal")
+    r_quad_keys = {
+        True: {
+            0: (1, 2, 3),
+            1: (0, 1, 2),
+            2: (0, 1, 3),
+            3: (0, 2, 3),
+        },
+        False: {
+            0: (0,),
+            1: (1,),
+            2: (2,),
+            3: (3,),
+        }
+    }
 
-        # check cut vertical to direction d
-        if l[0][d] < c and c < l[1][d] or \
-           l[1][d] < c and c < l[0][d]:
-            return (c, int(l[0][1])) if d == 0 else (int(l[0][0]), c)
+    def get_quadrant(p: np.ndarray, c: np.ndarray, rq: np.ndarray) -> list[np.ndarray]:
 
-        return None
+        # compare to concave / convex corners
+        for concave, cc in zip([False, True], [convex_corners, concave_corners]):
+            for j in range(cc.shape[0]-1):
+                if np.all(c == cc[j:j+2]):
+                    return [p + rq[k] for k in r_quad_keys[concave][j]]
 
-    def get_orientation(l) -> int:
-        if l[0][0] == l[1][0]:
-            return 1
-        elif l[0][1] == l[1][1]:
-            return 0
-        else:
-            raise ValueError("line is diagonal")
+        raise ValueError("Corner shape not found")
 
-    def cut_to_rects(points: np.ndarray, cut_dir: int = 1) -> list[tuple[tuple[int, int], tuple[int, int]]]:
+    bb = get_bounding_box(crds)
 
-        cut_dir_vert = 1 if cut_dir == 0 else 0
+    # relative quadrants
+    w, h = bb[1] - bb[0]
+    r_quad = np.array((
+        ((0, -h), (w, 0)),
+        ((0, 0), (w, h)),
+        ((-w, 0), (0, h)),
+        ((-w, -h), (0, 0)),
+    ))
 
-        # get first point on bounding box
-        bb = get_bounding_box(points)
-        sp = 0
-        for i, c in enumerate(points):
-            if bb_point(c, bb):
-                sp = i
-                break
+    # asume the coordinates are listed in clockwise order
+    # we build an array of edges with length 1 that store edge orientation
+    rlines = np.diff(np.concat((crds[-1:], crds, crds[:1])), axis=0)
+    norm = np.sum(rlines, axis=1)
+    norm *= np.sign(norm)
+    rlines[:, 0] //= norm
+    rlines[:, 1] //= norm
 
-        # get point where inner points projection cuts the outline
-        subbox_lines = dict()
-        for i in list(range(sp, points.shape[0])) + list(range(sp)):
-            if inner_point(points[i], bb):
-                # found inner point
-                for j in range(1, points.shape[0]):
-                    l = sorted(points[j-1:j+1], key=lambda x: x[cut_dir_vert])
+    # walk along this index to get wrapped point list
+    lidx = np.array(list(zip(
+        list(range(crds.shape[0])),
+        [crds.shape[0] - 1] + list(range(0, crds.shape[0] - 1)
+    ))))
 
-                    # conversion from numpy...
-                    l = ((int(l[0][0]), int(l[0][1])),
-                         (int(l[1][0]), int(l[1][1])))
+    imax, jmax = 0, 0
+    for i in range(rlines.shape[0]-1):
+        # get corner
+        c1, p1 = rlines[i:i+2], crds[i]
+        q1 = get_quadrant(p1, c1, r_quad)
 
-                    # cutting point on line
-                    if get_orientation(l) == cut_dir_vert:
-                        cp = cuts_line(
-                            points[i, cut_dir_vert], l, d=cut_dir_vert)
-                        if cp:
-                            cp = (int(cp[0]), int(cp[1]))
-                            if cut_dir_vert == 0:
-                                lines = [(l[0],             (cp[0], l[0][1])),
-                                         ((cp[0], l[0][1]),  l[1])]
-                            else:
-                                lines = [(l[0],             (l[0][0], cp[1])),
-                                         ((l[0][0], cp[1]),  l[1])]
-                        else:
-                            lines = [l]
+        for j in range(rlines.shape[0]-1):
+            # get corner
+            c2, p2 = rlines[j:j+2], crds[j]
 
-                        for l in lines:
-                            ckey = l[0][cut_dir_vert]
-                            if ckey not in subbox_lines.keys():
-                                subbox_lines.update({ckey: set()})
-                            subbox_lines[ckey].add(l)
+            # check if rectangle could be bigger
+            if rect_area(p1, p2) <= rect_area(crds[imax], crds[jmax]):
+                continue
 
-        def make_box(l1, l2, cdv):
-            if cdv == 0:
-                pass
-            else:
-                pass
+            # check if point is within reachable quadrant of other point
+            # -> if so, the point might be corner point of inner rectangle
+            if not any(is_in_rect(q[0], q[1], p2, include_borders=True) for q in q1):
+                continue
 
-        subboxes = []
-        for k in list(subbox_lines.keys()):
-            lines = subbox_lines.pop(k)
+            # reverse check
+            q2 = get_quadrant(p2, c2, r_quad)
+            if not any(is_in_rect(q[0], q[1], p1, include_borders=True) for q in q2):
+                continue
 
-            # remove lines bigger than subbox, they are already broken up
-            lmin = min([l[1][cut_dir_vert] for l in lines])
-            bl = [l for l in lines if l[1][cut_dir_vert] <= lmin]
+            # check if any other point is inside the rectangle build by c1, c2
+            # -> if so, the shape is not convex and we need to search further
+            if any(is_in_rect(p1, p2, p) for p in crds):
+                continue
 
-            if len(bl) % 2 == 1:
-                subboxes.append(make_box(l, ln, cut_dir_vert))
-            else:
-                for i in range(0, len(bl), 2):
-                    l, ln = bl[i], bl[i+1]
-                    subboxes.append(make_box(l, ln, cut_dir_vert))
-                
-        for s in subboxes:
-            print(s)
+            # check if any other line cuts the rectangle
+            if any(line_cuts_rect(p1, p2, np.array((crds[k1], crds[k2]))) for k1, k2 in lidx):
+                continue
 
-    cut_to_rects(np.array(list(crds) + [crds[0]]))
+            imax, jmax = i, j
 
-    return (0, 0), (0, 0), 0
+    return crds[imax], crds[jmax], rect_area(crds[imax], crds[jmax])
 
 
 if __name__ == "__main__":
@@ -248,5 +304,17 @@ if __name__ == "__main__":
     start_p2 = time.perf_counter()
     c1, c2, area = get_biggest_tile_rect_green_red(crds)
     time_p2 = (time.perf_counter() - start_p2) * 1000
+    if print_flg:
+        set_rectangle(tmap, c1, c2)
+        print_tile_map(tmap)
     print(f"Biggest area using only red and green tiles: {area}")
+    print(f"corners: ({c1[0]},{c1[1]}) -- ({c2[0]},{c2[1]})")
     print(f"Time: {time_p2:.3f}ms")
+
+    cwr = np.concatenate((crds, crds[:1]))
+    bb = get_bounding_box(np.array((c1, c2)))
+    fig, ax1, = plt.subplots(1, 1)
+    ax1.plot(cwr[:, 0], cwr[:, 1])
+    ax1.add_patch(plt.Rectangle(
+        bb[0], bb[1, 0] - bb[0, 0], bb[1, 1] - bb[0, 1]))
+    plt.show()
