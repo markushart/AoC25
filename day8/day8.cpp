@@ -3,12 +3,22 @@
 #include <iostream>
 #include <vector>
 #include <ranges>
+#include <limits>
 
 using namespace std;
 
-using et = unsigned int;
+using et = int;
 
 const size_t NO_GROUP = 0;
+
+struct Node
+{
+
+    et p[3] = {0, 0, 0};
+
+    size_t left = numeric_limits<size_t>::max(),
+           right = numeric_limits<size_t>::max();
+};
 
 template <typename T>
 void read_input(const string &fname, vector<vector<T>> &nums)
@@ -46,17 +56,6 @@ void read_input(const string &fname, vector<vector<T>> &nums)
 }
 
 template <typename T>
-T straight_line_dist_squared(const vector<T> &v)
-{
-    T s = 0;
-
-    for (auto x : v)
-        s += x * x;
-
-    return s;
-}
-
-template <typename T>
 void vec_diff(const vector<T> &a, const vector<T> &b, vector<T> &x)
 {
     if (a.size() != b.size())
@@ -68,6 +67,25 @@ void vec_diff(const vector<T> &a, const vector<T> &b, vector<T> &x)
 
     for (auto i = 0; i < a.size(); ++i)
         x[i] = a[i] - b[i];
+}
+
+template <typename T>
+T straight_line_dist_squared(const vector<T> &v)
+{
+    T s = 0;
+
+    for (auto x : v)
+        s += x * x;
+
+    return s;
+}
+
+template <typename T>
+T straight_line_dist_squared(const vector<T> &v1, const vector<T> &v2)
+{
+    vector<T> diff;
+    vec_diff(v1, v2, diff);
+    return straight_line_dist_squared(diff);
 }
 
 template <typename T>
@@ -86,11 +104,146 @@ void fill_distance_matrix(const vector<vector<T>> &n, vector<vector<T>> &d)
             }
             else
             {
-                vector<et> diff;
-                vec_diff(n[i], n[j], diff);
-                d[i][j] = straight_line_dist_squared(diff);
+                d[i][j] = straight_line_dist_squared(n[i], n[j]);
             }
         }
+    }
+}
+
+template <typename T>
+bool compare_node_dist(const vector<T> &p, const vector<Node> &n, size_t a, size_t b)
+{
+    // returns if dist |p-a| < |p-b|
+    const auto &pa = n[a].p,
+               &pb = n[b].p;
+    return straight_line_dist_squared(vector<T>({pa[0], pa[1], pa[2]}), p) <
+           straight_line_dist_squared(vector<T>({pb[0], pb[1], pb[2]}), p);
+}
+
+template <typename T>
+size_t closest_node(const vector<T> &p, const vector<Node> &n, size_t a, size_t b)
+{
+    if (a >= n.size() && b >= n.size())
+        return n.size();
+    else if (a >= n.size())
+        return b;
+    else if (b >= n.size())
+        return a;
+    else if (compare_node_dist(p, n, a, b))
+        return a;
+    else
+        return b;
+}
+
+struct SearchResult
+{
+    size_t idx = numeric_limits<size_t>::max();
+    bool left = false;
+};
+
+template <typename T>
+SearchResult insert_kd_tree(const vector<T> &p, const vector<Node> &n, size_t r, size_t k)
+{
+    if (r >= n.size())
+    {
+        return {n.size(), false}; // you would need to insert node at end
+    }
+
+    const Node &root = n.at(r);
+    size_t _k = k % 3,
+           nb = 0; // next branch
+
+    // find node where we could insert
+    bool l = p[_k] < root.p[_k];
+    if (l)
+    {
+        nb = root.left;
+    }
+    else
+    {
+        nb = root.right;
+    }
+
+    auto sr = insert_kd_tree(p, n, nb, k + 1);
+    if (sr.idx >= n.size())
+        return {r, l};
+    else
+        return sr;
+}
+
+template <typename T>
+void insert_kd_tree(const vector<T> &p, vector<Node> &n)
+{
+    if (!n.empty())
+    {
+        auto sr = insert_kd_tree(p, n, 0, 0);
+        if (sr.left)
+        {
+            n[sr.idx].left = n.size();
+        }
+        else
+        {
+            n[sr.idx].right = n.size();
+        }
+    }
+    n.push_back({p[0], p[1], p[2]});
+}
+
+template <typename T>
+size_t search_nearest_node(const vector<T> &p, const vector<Node> &n, size_t r = 0, size_t k = 0)
+{
+    if (r >= n.size())
+    {
+        return n.size(); // you would need to insert node at end
+    }
+
+    const Node &root = n.at(r);
+    size_t _k = k % 3,
+           nb = 0, // next branch
+        ob = 0;    // other branch
+
+    // find node where we could insert
+    if (p[_k] < root.p[_k])
+    {
+        nb = root.left;
+        ob = root.right;
+    }
+    else
+    {
+        nb = root.right;
+        ob = root.left;
+    }
+
+    auto _i = closest_node(p, n, r, search_nearest_node(p, n, nb, k + 1));
+
+    if (ob < n.size())
+    {
+        // we need to check if other half of tree needs to be traversed
+        auto rad_sq = straight_line_dist_squared(p, vector<T>({n[_i].p[0], n[_i].p[1], n[_i].p[2]}));
+
+        T dist = root.p[_k] - p[_k];
+
+        if ((dist * dist) < rad_sq)
+        {
+            // check if other is closer
+            _i = closest_node(p, n, _i, search_nearest_node(p, n, ob, k + 1));
+        };
+    }
+
+    return _i;
+}
+
+template <typename T>
+void build_distance_tree(const vector<vector<T>> &p, vector<Node> &n)
+{
+    if (!p.size())
+        return;
+
+    n.reserve(p.size());
+
+    for (auto &_p : p)
+    {
+        insert_kd_tree(_p, n);
     }
 }
 
@@ -98,6 +251,9 @@ int main(int argc, char *argv[])
 {
 
     string fname = "input.txt";
+    vector<vector<et>> nums;
+    vector<Node> nodes;
+    // vector<vector<et>> dist;
 
     if (argc >= 2)
     {
@@ -105,29 +261,39 @@ int main(int argc, char *argv[])
         cout << "read file " << fname << endl;
     }
 
-    vector<vector<et>> nums;
     read_input(fname, nums);
 
-    vector<vector<et>> dist;
-    fill_distance_matrix(nums, dist);
+    if (!nums.size())
+    {
+        return -1;
+    }
+
+    // fill_distance_matrix(nums, dist);
 
     /* ========== PART 1 ========== */
 
     // search smallest distanze where i != j
-    size_t id = 0, jd = dist.size();
-    for (auto i = 0; i < dist.size(); ++i)
-    {
-        for (auto j = 0; j < dist.size(); ++j)
-        {
-            if (i != j && dist[i][j] < dist[id][jd])
-            {
-                id = i;
-                jd = j;
-            }
-        }
-    }
+    // size_t id = 0, jd = dist.size();
+    // for (auto i = 0; i < dist.size(); ++i)
+    // {
+    //     for (auto j = 0; j < dist.size(); ++j)
+    //     {
+    //         if (i != j && dist[i][j] < dist[id][jd])
+    //         {
+    //             id = i;
+    //             jd = j;
+    //         }
+    //     }
+    // }
 
-    cout << "smallest element: d[" << id << "][" << jd << "] = " << dist[id][jd] << "\n";
+    // cout << "smallest element: d[" << id << "][" << jd << "] = " << dist[id][jd] << "\n";
+
+    build_distance_tree(nums, nodes);
+
+    cout << "inserted " << nodes.size() << "/" << nums.size() << " nodes" << "\n";
+
+    auto in = search_nearest_node(vector({162, 817, 812}), nodes);
+    cout << "nearest point is: (" << nodes[in].p[0] << ", " << nodes[in].p[1] << ", " << nodes[in].p[2] << ")\n";
 
     return 0;
 }
