@@ -14,7 +14,7 @@ const size_t NO_GROUP = 0;
 struct Node
 {
 
-    et p[3] = {0, 0, 0};
+    vector<et> p{0, 0, 0};
 
     size_t left = numeric_limits<size_t>::max(),
            right = numeric_limits<size_t>::max();
@@ -74,7 +74,7 @@ T straight_line_dist_squared(const vector<T> &v)
 {
     T s = 0;
 
-    for (auto x : v)
+    for (const auto &x : v)
         s += x * x;
 
     return s;
@@ -111,17 +111,7 @@ void fill_distance_matrix(const vector<vector<T>> &n, vector<vector<T>> &d)
 }
 
 template <typename T>
-bool compare_node_dist(const vector<T> &p, const vector<Node> &n, size_t a, size_t b)
-{
-    // returns if dist |p-a| < |p-b|
-    const auto &pa = n[a].p,
-               &pb = n[b].p;
-    return straight_line_dist_squared(vector<T>({pa[0], pa[1], pa[2]}), p) <
-           straight_line_dist_squared(vector<T>({pb[0], pb[1], pb[2]}), p);
-}
-
-template <typename T>
-size_t closest_node(const vector<T> &p, const vector<Node> &n, size_t a, size_t b)
+size_t closest_node(const vector<T> &p, const vector<Node> &n, size_t a, size_t b, T min_r = 1)
 {
     if (a >= n.size() && b >= n.size())
         return n.size();
@@ -129,10 +119,20 @@ size_t closest_node(const vector<T> &p, const vector<Node> &n, size_t a, size_t 
         return b;
     else if (b >= n.size())
         return a;
-    else if (compare_node_dist(p, n, a, b))
-        return a;
     else
-        return b;
+    {
+        auto da = straight_line_dist_squared(n[a].p, p),
+             db = straight_line_dist_squared(n[b].p, p);
+
+        if (da < db)
+        {
+            return a;
+        }
+        else
+        {
+            return b;
+        }
+    }
 }
 
 struct SearchResult
@@ -186,11 +186,11 @@ void insert_kd_tree(const vector<T> &p, vector<Node> &n)
             n[sr.idx].right = n.size();
         }
     }
-    n.push_back({p[0], p[1], p[2]});
+    n.push_back({vector<T>{p[0], p[1], p[2]}});
 }
 
 template <typename T>
-size_t search_nearest_node(const vector<T> &p, const vector<Node> &n, size_t r = 0, size_t k = 0)
+size_t search_nearest_node(const vector<T> &p, const vector<Node> &n, size_t r = 0, size_t k = 0, T min_r = 1)
 {
     if (r >= n.size())
     {
@@ -219,7 +219,7 @@ size_t search_nearest_node(const vector<T> &p, const vector<Node> &n, size_t r =
     if (ob < n.size())
     {
         // we need to check if other half of tree needs to be traversed
-        auto rad_sq = straight_line_dist_squared(p, vector<T>({n[_i].p[0], n[_i].p[1], n[_i].p[2]}));
+        auto rad_sq = straight_line_dist_squared(p, n[_i].p);
 
         T dist = root.p[_k] - p[_k];
 
