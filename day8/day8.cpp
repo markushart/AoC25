@@ -2,10 +2,11 @@
 #include <fstream>
 #include <iostream>
 #include <vector>
+#include <list>
 #include <ranges>
 #include <limits>
-#include <numeric>   // std::iota
-#include <algorithm> // std::sort, std::stable_sort
+#include <numeric>
+#include <algorithm>
 
 using namespace std;
 
@@ -138,7 +139,7 @@ size_t search_nearest_node(const vector<T> &p, const vector<Node> &n, size_t r =
 {
     if (r >= n.size())
     {
-        return n.size(); // you would need to insert node at end
+        return n.size(); 
     }
 
     const Node &root = n.at(r);
@@ -182,21 +183,37 @@ struct SearchResult
 };
 
 template <typename T>
-size_t insert_kd_tree(const vector<vector<T>> &p,
+size_t insert_kd_tree(list<vector<T>> &p,
                       vector<Node> &n,
-                      const vector<vector<size_t>> &argi,
-                      size_t s, size_t e, size_t k)
+                      size_t k)
 {
 
-    const auto m_idx = s + (e - s) / 2; // median index
-    const auto pi = argi[k % 3][m_idx]; // point index
-    n.push_back({p[pi]});
-    const auto ni = n.size() - 1; // save index of new node
+    const size_t d = k % p.front().size();
 
-    if (s < m_idx) // split points from start to median
-        n[ni].left = insert_kd_tree(p, n, argi, s, m_idx, k + 1);
-    if (m_idx + 1 < e) // split points from median to end
-        n[ni].right = insert_kd_tree(p, n, argi, m_idx + 1, e, k + 1);
+    // sort points by current dimension
+    p.sort([&d](const auto &x1, const auto &x2)
+           { return x1[d] < x2[d]; });
+
+    // split into left and right list
+    list<vector<T>> rl;
+    rl.splice(rl.begin(),
+              p,
+              next(p.begin(), p.size() / 2),
+              p.end());
+
+    // right list first element is point to insert
+    n.push_back({rl.front()});
+    const auto ni = n.size() - 1; // save index of new node
+    rl.pop_front();
+
+    if (!p.empty())
+    {
+        n[ni].left = insert_kd_tree(p, n, k + 1);
+    }
+    if (!rl.empty())
+    {
+        n[ni].right = insert_kd_tree(rl, n, k + 1);
+    }
 
     return ni;
 }
@@ -207,24 +224,13 @@ void build_distance_tree(const vector<vector<T>> &p, vector<Node> &n)
     if (!p.size())
         return;
 
-    // indices of points sorted by x, y, z
-    vector<vector<size_t>> argi(p[0].size());
-
-    for (auto k = 0; k < argi.size(); ++k)
-    {
-        auto &ax = argi[k];
-        ax.resize(p.size());
-        // fill with 0 .. n
-        iota(ax.begin(), ax.end(), 0);
-        // sort by dimension
-        stable_sort(ax.begin(), ax.end(),
-                    [&p, &k](size_t i1, size_t i2)
-                    { return p[i1][k] < p[i2][k]; });
-    }
+    list<vector<T>> pl;
+    for (const auto &x : p)
+        pl.push_back(x);
 
     n.reserve(p.size());
 
-    insert_kd_tree(p, n, argi, 0, p.size(), 0);
+    insert_kd_tree(pl, n, 0);
 }
 
 int main(int argc, char *argv[])
@@ -272,8 +278,8 @@ int main(int argc, char *argv[])
 
     cout << "inserted " << nodes.size() << "/" << nums.size() << " nodes" << "\n";
 
-    // auto in = search_nearest_node(vector({162, 817, 812}), nodes);
-    // cout << "nearest point is: (" << nodes[in].p[0] << ", " << nodes[in].p[1] << ", " << nodes[in].p[2] << ")\n";
+    auto in = search_nearest_node(vector({162, 817, 812}), nodes);
+    cout << "nearest point is: (" << nodes[in].p[0] << ", " << nodes[in].p[1] << ", " << nodes[in].p[2] << ")\n";
 
     return 0;
 }
