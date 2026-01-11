@@ -8,12 +8,11 @@
 #include <numeric>
 #include <algorithm>
 #include <array>
+#include <unordered_map>
 
 using namespace std;
 
 using et = long;
-
-const size_t NO_GROUP = 0;
 
 template <typename T>
 void vec_diff(const vector<T> &a, const vector<T> &b, vector<T> &x)
@@ -66,7 +65,7 @@ struct NNQuery
     vector<size_t> nearest;
     vector<Node<T>> *nodes = nullptr;
 
-    NNQuery(const vector<T> &p, size_t n_nearest, vector<Node<T>> *nodes) : p{p}, n_nearest{n_nearest}, nodes{nodes}
+    NNQuery(const vector<T> &p, size_t n_nearest, vector<Node<T>> *const nodes) : p{p}, n_nearest{n_nearest}, nodes{nodes}
     {
         this->nearest.reserve(this->n_nearest + 1);
     }
@@ -241,12 +240,6 @@ void fill_distance_matrix(const vector<vector<T>> &n, vector<vector<T>> &d)
     }
 }
 
-struct SearchResult
-{
-    size_t idx = numeric_limits<size_t>::max();
-    bool left = false;
-};
-
 template <typename T>
 size_t insert_kd_tree(list<vector<T>> &p,
                       vector<Node<T>> &n,
@@ -298,18 +291,94 @@ void build_distance_tree(const vector<vector<T>> &p, vector<Node<T>> &n)
     insert_kd_tree(pl, n, 0);
 }
 
+template <typename T, typename K>
+void group_points(const vector<vector<T>> &dist, list<vector<K>> &groups, const K ndist)
+{
+
+    if (dist.empty())
+        return;
+
+    // init groups where every group contains one point
+    for (K i = 0; i < dist.size(); ++i)
+        groups.push_back({i});
+
+    T last_min_dist = 0;
+    for (auto bi = 0; bi < ndist; ++bi)
+    {
+        auto p = make_pair<K, K>(dist.size() - 1, 0);
+
+        // get next closest distance
+        auto min_dist = numeric_limits<T>::max();
+        for (auto i = 0; i < dist.size(); ++i)
+        {
+            for (auto j = 0; j < dist[i].size(); ++j)
+            {
+                if (dist[i][j] < min_dist && last_min_dist < dist[i][j])
+                {
+                    min_dist = dist[i][j];
+                    p = make_pair(i, j);
+                }
+            }
+        }
+
+        // next point pair must be at least this far apart
+        last_min_dist = min_dist;
+
+        // search for points in existing groups
+        vector<typename list<vector<K>>::iterator> ag;
+        for (const auto &x : {p.first, p.second})
+        {
+            auto g = groups.begin();
+            for (; g != groups.end(); ++g)
+            {
+                auto it = lower_bound(g->begin(), g->end(), x);
+                if (it != g->end())
+                    if (*it == x)
+                        break;
+            }
+
+            ag.push_back(g);
+        }
+
+        if (ag[0] == groups.end() || ag[1] == groups.end())
+        {
+            // something went wrong
+            return;
+        }
+        else if (ag[0] != ag[1])
+        {
+            // found both points, merge groups
+            for (const auto &x : *ag[1])
+            {
+                auto it = lower_bound(ag[0]->begin(), ag[0]->end(), x);
+                if (it == ag[0]->end())
+                    ag[0]->insert(it, x);
+                else if (*it != x)
+                    ag[0]->insert(it, x);
+            }
+            groups.erase(ag[1]);
+        }
+    }
+}
+
 int main(int argc, char *argv[])
 {
 
     string fname = "input.txt";
     vector<vector<et>> nums;
     vector<Node<et>> nodes;
-    // vector<vector<et>> dist;
+    vector<vector<et>> dist;
 
     if (argc >= 2)
     {
         fname = argv[1];
         cout << "read file " << fname << endl;
+    }
+
+    size_t nbiggest = 3;
+    if (argc >= 3)
+    {
+        nbiggest = stol(argv[2]);
     }
 
     read_input(fname, nums);
@@ -319,38 +388,57 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    // fill_distance_matrix(nums, dist);
+    size_t ndist = nums.size();
+    if (argc >= 4)
+    {
+        ndist = stol(argv[3]);
+        if (ndist > nums.size())
+            ndist = nums.size();
+    }
+
+    fill_distance_matrix(nums, dist);
 
     /* ========== PART 1 ========== */
 
-    // search smallest distanze where i != j
-    // size_t id = 0, jd = dist.size();
-    // for (auto i = 0; i < dist.size(); ++i)
-    // {
-    //     for (auto j = 0; j < dist.size(); ++j)
-    //     {
-    //         if (i != j && dist[i][j] < dist[id][jd])
-    //         {
-    //             id = i;
-    //             jd = j;
-    //         }
-    //     }
-    // }
-
-    // cout << "smallest element: d[" << id << "][" << jd << "] = " << dist[id][jd] << "\n";
-
+    // build kd-tree (not used in this example, maybe use later for optimization)
     build_distance_tree(nums, nodes);
-
     cout << "inserted " << nodes.size() << "/" << nums.size() << " nodes" << "\n";
 
-    // auto in = search_nearest_node(, nodes);
-    NNQuery query(vector<et>({162, 817, 812}), 10, &nodes);
-    query.search_nearest_node();
-    for (auto i = 0; i < query.nearest.size(); ++i)
-    {
-        const auto &np = query.get_nearest_point(i);
-        cout << "nearest point is: (" << np[0] << ", " << np[1] << ", " << np[2] << "); ";
-        cout << "distance: " << straight_line_dist_squared(query.p, np) << "\n";
-    }
+    // group the points
+    list<vector<size_t>> groups;
+    group_points(dist, groups, ndist);
+
+    groups.sort([](const auto &a, const auto &b)
+                { return a.size() > b.size(); });
+
+    // for (const auto &g : groups)
+    // {
+    //     cout << "{";
+    //     for (const auto &i : g)
+    //         cout << i << ", ";
+    //     cout << "}\n";
+    // }
+
+    // eval biggest groups
+    if (nbiggest >= groups.size())
+        nbiggest = groups.size();
+
+    cout << "get (" << nbiggest << "/" << groups.size() << ") biggest groups\n";
+
+    // multiply biggest group sizes
+    size_t bgp = 1;
+    for (auto it = groups.begin(); it != next(groups.begin(), nbiggest); ++it)
+        bgp *= it->size();
+
+    cout << "Product of sizes of " << nbiggest << " biggest groups: " << bgp << "\n";
+
+    // NNQuery query(vector<et>({162, 817, 812}), 10, &nodes);
+    // query.search_nearest_node();
+    // for (auto i = 0; i < query.nearest.size(); ++i)
+    // {
+    //     const auto &np = query.get_nearest_point(i);
+    //     cout << "nearest point is: (" << np[0] << ", " << np[1] << ", " << np[2] << "); ";
+    //     cout << "distance: " << straight_line_dist_squared(query.p, np) << "\n";
+    // }
     return 0;
 }
