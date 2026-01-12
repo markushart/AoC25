@@ -519,14 +519,6 @@ int main(int argc, char *argv[])
     auto ms_group1 = duration_cast<milliseconds>(t2 - t1);
     cout << "time for grouping (Part 1): " << ms_group1.count() << "(ms)\n";
 
-    for (const auto &g : groups)
-    {
-        cout << "{";
-        for (const auto &i : g)
-            cout << i << ", ";
-        cout << "}\n";
-    }
-
     // eval biggest groups
     if (nbiggest >= groups.size())
         nbiggest = groups.size();
@@ -559,15 +551,6 @@ int main(int argc, char *argv[])
     {
         cout << "Error: last joined point pair is invalid\n";
         return -1;
-    }
-
-    cout << "Groups:\n";
-    for (const auto &g : groups)
-    {
-        cout << "Group (" << g.size() << "): {";
-        for (const auto &i : g)
-            cout << i << ", ";
-        cout << "}\n";
     }
 
     cout << "Last joined point pair:\n";
