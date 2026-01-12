@@ -292,6 +292,55 @@ void build_distance_tree(const vector<vector<T>> &p, vector<Node<T>> &n)
 }
 
 template <typename T, typename K>
+pair<K, K> get_closest_pair(const vector<vector<T>> &dist, const T min_dist)
+{
+    auto p = make_pair<K, K>(static_cast<K>(dist.size() > 0), 0);
+
+    auto new_min_dist = numeric_limits<T>::max();
+    for (auto i = 0; i < dist.size(); ++i)
+        for (auto j = 0; j < dist[i].size(); ++j)
+            if (dist[i][j] < new_min_dist && min_dist < dist[i][j])
+            {
+                new_min_dist = dist[i][j];
+                p = make_pair(i, j);
+            }
+    return p;
+}
+
+template <typename K>
+typename list<vector<K>>::iterator get_point_in_group(list<vector<K>> &groups, const K p)
+{
+    const auto q = [&p](const vector<K> &g)
+    {
+        auto it = lower_bound(g.begin(), g.end(), p);
+        if (it != g.end())
+            if (*it == p)
+                return true;
+        return false;
+    };
+
+    return find_if(groups.begin(), groups.end(), q);
+}
+
+template <typename K>
+int join_groups(typename list<vector<K>>::iterator g1, typename list<vector<K>>::const_iterator g2, list<vector<K>> &g)
+{
+    if (g1 == g.end() || g2 == g.end())
+    {
+        // something went wrong
+        return -1;
+    }
+    else if (g1 != g2)
+    {
+        // found both points, merge groups
+        for (const auto &x : *g2)
+            g1->insert(lower_bound(g1->begin(), g1->end(), x), x);
+        g.erase(g2);
+    }
+    return 0;
+}
+
+template <typename T, typename K>
 void group_points(const vector<vector<T>> &dist, list<vector<K>> &groups, const K ndist)
 {
 
@@ -305,58 +354,19 @@ void group_points(const vector<vector<T>> &dist, list<vector<K>> &groups, const 
     T last_min_dist = 0;
     for (auto bi = 0; bi < ndist; ++bi)
     {
-        auto p = make_pair<K, K>(dist.size() - 1, 0);
 
         // get next closest distance
-        auto min_dist = numeric_limits<T>::max();
-        for (auto i = 0; i < dist.size(); ++i)
-        {
-            for (auto j = 0; j < dist[i].size(); ++j)
-            {
-                if (dist[i][j] < min_dist && last_min_dist < dist[i][j])
-                {
-                    min_dist = dist[i][j];
-                    p = make_pair(i, j);
-                }
-            }
-        }
-
+        auto p = get_closest_pair<T, K>(dist, last_min_dist);
         // next point pair must be at least this far apart
-        last_min_dist = min_dist;
+        last_min_dist = dist[p.first][p.second];
 
         // search for points in existing groups
-        vector<typename list<vector<K>>::iterator> ag;
-        for (const auto &x : {p.first, p.second})
+        if (join_groups(get_point_in_group(groups, p.first),
+                        get_point_in_group(groups, p.second),
+                        groups) != 0)
         {
-            auto g = groups.begin();
-            for (; g != groups.end(); ++g)
-            {
-                auto it = lower_bound(g->begin(), g->end(), x);
-                if (it != g->end())
-                    if (*it == x)
-                        break;
-            }
-
-            ag.push_back(g);
-        }
-
-        if (ag[0] == groups.end() || ag[1] == groups.end())
-        {
-            // something went wrong
+            cout << "Error joining groups\n";
             return;
-        }
-        else if (ag[0] != ag[1])
-        {
-            // found both points, merge groups
-            for (const auto &x : *ag[1])
-            {
-                auto it = lower_bound(ag[0]->begin(), ag[0]->end(), x);
-                if (it == ag[0]->end())
-                    ag[0]->insert(it, x);
-                else if (*it != x)
-                    ag[0]->insert(it, x);
-            }
-            groups.erase(ag[1]);
         }
     }
 }
