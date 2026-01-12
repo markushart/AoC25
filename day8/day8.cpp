@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <array>
 #include <unordered_map>
+#include <chrono>
 
 using namespace std;
 
@@ -240,6 +241,50 @@ void fill_distance_matrix(const vector<vector<T>> &n, vector<vector<T>> &d)
     }
 }
 
+template <typename T, typename K>
+struct SortedDistancePairs
+{
+    // contains the points of the distance matrix
+    vector<array<K, 2>> dp;
+    vector<K> index;
+
+    void fill(const vector<vector<T>> &dist)
+    {
+        dp.clear();
+
+        index.resize(dist.size());
+        iota(index.begin(), index.end(), 0);
+
+        // we do not need to store diagonal and upper half of distance matrix
+        dp.reserve(dist.size() * (dist.size() - 1) / 2);
+        for (K i = 0; i < dist.size() - 1; ++i)
+            for (K j = i + 1; j < dist.size(); ++j)
+                dp.push_back({i, j});
+
+        // for (const auto &d : dp)
+        //     cout << "dist[" << d[0] << "][" << d[1] << "]" << dist[d[0]][d[1]] << "\n";
+
+        sort(dist);
+    }
+
+    void sort(const vector<vector<T>> &dist)
+    {
+        std::sort(dp.begin(), dp.end(), [&](const auto &a, const auto &b)
+                  { return dist[a[0]][a[1]] < dist[b[0]][b[1]]; });
+    }
+
+    pair<K, K> get_pair(const size_t i) const
+    {
+        return make_pair(dp[i][0], dp[i][1]);
+    }
+
+    size_t size() const { return dp.size(); }
+
+    bool empty() const { return dp.empty(); }
+
+    size_t index_size() const { return index.size(); }
+};
+
 template <typename T>
 size_t insert_kd_tree(list<vector<T>> &p,
                       vector<Node<T>> &n,
@@ -323,7 +368,7 @@ typename list<vector<K>>::iterator get_point_in_group(list<vector<K>> &groups, c
 }
 
 template <typename K>
-int join_groups(typename list<vector<K>>::iterator g1, typename list<vector<K>>::const_iterator g2, list<vector<K>> &g)
+int join_groups(typename list<vector<K>>::iterator g1, typename list<vector<K>>::iterator g2, list<vector<K>> &g)
 {
     if (g1 == g.end() || g2 == g.end())
     {
@@ -332,7 +377,9 @@ int join_groups(typename list<vector<K>>::iterator g1, typename list<vector<K>>:
     }
     else if (g1 != g2)
     {
-        // found both points, merge groups
+        // found both points, merge smaller group into bigger group
+        if (g1->size() < g2->size())
+            swap(g1, g2);
         for (const auto &x : *g2)
             g1->insert(lower_bound(g1->begin(), g1->end(), x), x);
         g.erase(g2);
@@ -341,24 +388,22 @@ int join_groups(typename list<vector<K>>::iterator g1, typename list<vector<K>>:
 }
 
 template <typename T, typename K>
-void group_points(const vector<vector<T>> &dist, list<vector<K>> &groups, const K ndist)
+void group_points(const SortedDistancePairs<T, K> &dist, list<vector<K>> &groups, const size_t ndist)
 {
 
-    if (dist.empty())
+    if (dist.empty() || ndist > dist.size())
+        // max number of distances possible reached
         return;
 
     // init groups where every group contains one point
-    for (K i = 0; i < dist.size(); ++i)
+    groups.clear();
+    for (const auto &i : dist.index)
         groups.push_back({i});
 
-    T last_min_dist = 0;
-    for (auto bi = 0; bi < ndist; ++bi)
+    for (size_t bi = 0; bi < ndist; ++bi)
     {
 
-        // get next closest distance
-        auto p = get_closest_pair<T, K>(dist, last_min_dist);
-        // next point pair must be at least this far apart
-        last_min_dist = dist[p.first][p.second];
+        const auto &p = dist.get_pair(bi);
 
         // search for points in existing groups
         if (join_groups(get_point_in_group(groups, p.first),
@@ -369,15 +414,61 @@ void group_points(const vector<vector<T>> &dist, list<vector<K>> &groups, const 
             return;
         }
     }
+
+    groups.sort([](const auto &a, const auto &b)
+                { return a.size() > b.size(); });
+}
+
+template <typename T, typename K>
+pair<K, K> group_points_to_n_groups(const SortedDistancePairs<T, K> &dist, list<vector<K>> &groups, const size_t ngroups)
+{
+
+    if (dist.empty() || ngroups > dist.size())
+        return make_pair<K, K>(0, 0);
+
+    // init groups where every group contains one point
+    groups.clear();
+    for (const auto &i : dist.index)
+        groups.push_back({i});
+
+    auto p = dist.get_pair(0);
+    for (size_t bi = 0; bi < dist.size(); ++bi)
+    {
+
+        // get next closest distance
+        p = dist.get_pair(bi);
+
+        // search for points in existing groups
+        if (join_groups(get_point_in_group(groups, p.first),
+                        get_point_in_group(groups, p.second),
+                        groups) != 0)
+        {
+            cout << "Error joining groups\n";
+            return make_pair<K, K>(0, 0);
+        }
+
+        if (groups.size() <= ngroups)
+            break;
+    }
+
+    groups.sort([](const auto &a, const auto &b)
+                { return a.size() > b.size(); });
+    return p;
 }
 
 int main(int argc, char *argv[])
 {
 
+    using std::chrono::duration;
+    using std::chrono::duration_cast;
+    using std::chrono::high_resolution_clock;
+    using std::chrono::milliseconds;
+
     string fname = "input.txt";
     vector<vector<et>> nums;
     vector<Node<et>> nodes;
     vector<vector<et>> dist;
+    SortedDistancePairs<et, size_t> sdp;
 
     if (argc >= 2)
     {
@@ -406,7 +497,12 @@ int main(int argc, char *argv[])
             ndist = nums.size();
     }
 
+    auto t1 = high_resolution_clock::now();
     fill_distance_matrix(nums, dist);
+    sdp.fill(dist);
+    auto t2 = high_resolution_clock::now();
+    auto ms_read = duration_cast<milliseconds>(t2 - t1);
+    cout << "time for reading and distance matrix: " << ms_read.count() << "(ms)\n";
 
     /* ========== PART 1 ========== */
 
@@ -416,18 +512,20 @@ int main(int argc, char *argv[])
 
     // group the points
     list<vector<size_t>> groups;
-    group_points(dist, groups, ndist);
 
-    groups.sort([](const auto &a, const auto &b)
-                { return a.size() > b.size(); });
+    t1 = high_resolution_clock::now();
+    group_points(sdp, groups, ndist);
+    t2 = high_resolution_clock::now();
+    auto ms_group1 = duration_cast<milliseconds>(t2 - t1);
+    cout << "time for grouping (Part 1): " << ms_group1.count() << "(ms)\n";
 
-    // for (const auto &g : groups)
-    // {
-    //     cout << "{";
-    //     for (const auto &i : g)
-    //         cout << i << ", ";
-    //     cout << "}\n";
-    // }
+    for (const auto &g : groups)
+    {
+        cout << "{";
+        for (const auto &i : g)
+            cout << i << ", ";
+        cout << "}\n";
+    }
 
     // eval biggest groups
     if (nbiggest >= groups.size())
@@ -442,13 +540,40 @@ int main(int argc, char *argv[])
 
     cout << "Product of sizes of " << nbiggest << " biggest groups: " << bgp << "\n";
 
-    // NNQuery query(vector<et>({162, 817, 812}), 10, &nodes);
-    // query.search_nearest_node();
-    // for (auto i = 0; i < query.nearest.size(); ++i)
-    // {
-    //     const auto &np = query.get_nearest_point(i);
-    //     cout << "nearest point is: (" << np[0] << ", " << np[1] << ", " << np[2] << "); ";
-    //     cout << "distance: " << straight_line_dist_squared(query.p, np) << "\n";
-    // }
+    /* ========== PART 2 ========== */
+    t1 = high_resolution_clock::now();
+    const size_t ngroups = 1;
+    auto last_joined = group_points_to_n_groups(sdp, groups, ngroups);
+    // answer to part 2: product of last joined points x axis
+    const auto answer2 = nums[last_joined.first][0] * nums[last_joined.second][0];
+    t2 = high_resolution_clock::now();
+    auto ms_group2 = duration_cast<milliseconds>(t2 - t1);
+    cout << "time for grouping (Part 2): " << ms_group2.count() << "(ms)\n";
+
+    if (groups.size() != ngroups)
+    {
+        cout << "Error: could not group into 2 groups\n";
+        return -1;
+    }
+    else if (last_joined.first == 0 && last_joined.second == 0)
+    {
+        cout << "Error: last joined point pair is invalid\n";
+        return -1;
+    }
+
+    cout << "Groups:\n";
+    for (const auto &g : groups)
+    {
+        cout << "Group (" << g.size() << "): {";
+        for (const auto &i : g)
+            cout << i << ", ";
+        cout << "}\n";
+    }
+
+    cout << "Last joined point pair:\n";
+    cout << last_joined.first << " {" << nums[last_joined.first][0] << ", " << nums[last_joined.first][1] << ", " << nums[last_joined.first][2] << "}\n";
+    cout << last_joined.second << " {" << nums[last_joined.second][0] << ", " << nums[last_joined.second][1] << ", " << nums[last_joined.second][2] << "}\n";
+    cout << "Answer to part 2: " << answer2 << "\n";
+
     return 0;
 }
