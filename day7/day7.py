@@ -58,15 +58,12 @@ def tachion_ray_trace(m: np.ndarray, multiverse: bool=False) -> tuple[int, np.nd
             return [(x, y)], 0
         elif m[y + 1, x] == TACHSPLIT_I:
             # splitter
-            if split_count[y, x]:
-                [], split_count[y, x] 
-            else:
-                c1, c2, spl1, spl2 = [], [], 0, 0
+            if not split_count[y + 1, x]:
                 c1, spl1 = tachion_ray_trace_rec(m, x - 1, y + 1, multiverse)
                 c2, spl2 = tachion_ray_trace_rec(m, x + 1, y + 1, multiverse)
                 spl = spl1 + spl2 + 1
                 
-                split_count[y, x] = spl
+                split_count[y + 1, x] = spl
 
                 coords = c1 + c2
         else:
