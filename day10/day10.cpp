@@ -7,11 +7,12 @@
 #include <algorithm>
 #include <numeric>
 #include <bitset>
+#include <unordered_map>
 
 using namespace std;
 using idx_t = size_t;
 using iVec = vector<idx_t>;
-using joltage_t = unsigned int;
+using joltage_t = int;
 using joltVec = vector<joltage_t>;
 
 // The manual describes one machine per line.
@@ -220,6 +221,121 @@ LightVec light_indices_to_bitset(const iVec &i_vec)
     return b;
 }
 
+template <typename T>
+bool next_combination(vector<T> &v, const size_t n)
+{
+    // swap in element in vector past N which is bigger than position x
+    // return true while next combination exists, return false if range from begin to end is
+    // sorted descending
+    // n = 1
+    // -----------
+    // 0 1 2 3 4 5
+    // 1 0 2 3 4 5
+    // 2 0 1 3 4 5
+    // 3 0 1 2 4 5
+    // 4 0 1 2 3 5
+    // 5 0 1 2 3 4
+    // n = 2
+    // -----------
+    // 0 1 2 3 4 5
+    // 0 2 1 3 4 5
+    // 0 3 1 2 4 5
+    // 0 4 1 2 3 5
+    // 0 5 1 2 3 4
+    // -----------
+    // 1 0 2 3 4 5
+    // 1 2 0 3 4 5
+    // 1 3 0 2 4 5
+    // 1 4 0 2 3 5
+    // 1 5 0 2 3 4
+    // ...
+    // -----------
+    // 5 0 1 2 3 4
+    // 5 1 0 2 3 4
+    // 5 2 0 1 3 4
+    // 5 3 0 1 2 4
+    // 5 4 0 1 2 3
+
+    for (auto i = n; i > 0; --i)
+    {
+        // value to check for swap
+        auto it1 = v.begin() + i - 1;
+        // value to swap with
+        auto it2 = lower_bound(v.begin() + i, v.end(), *it1);
+
+        if (it2 != v.end())
+        {
+            iter_swap(it1, it2);
+            break;
+        }
+    }
+
+    // check if the first n values are bigger than their neighbors
+    bool finished = true;
+    for (auto i = 0; i < n; ++i)
+        for (auto j = i + 1; j < v.size(); ++j)
+            if (v[i] < v[j])
+            {
+                finished = false;
+                break;
+            }
+    return finished;
+}
+
+size_t switch_buttons(const LightVec lights, const LightVec &target, const vector<LightVec> &bitmasks, unordered_map<LightVec, size_t> &ls_cache, const size_t current_best, const size_t d = 1)
+{
+    if (bitmasks.size() <= 1)
+    {
+        // TODO: check if last light realy solves
+        return d;
+    }
+    else if (current_best < d)
+    {
+        // check if we stepped over current best
+        return d;
+    }
+
+    vector<LightVec> bm;
+    bm.reserve(bitmasks.size() - 1);
+    auto new_d = d + bitmasks.size();
+    for (const auto &b : bitmasks)
+    {
+        auto new_light = lights ^ b;
+
+        if (new_light == target)
+        {
+            ls_cache.insert(make_pair(new_light, d));
+            return d;
+        }
+        else if (ls_cache.count(new_light) > 0)
+        {
+            // check if there is a better combination to reach this light state
+            // or update
+            if (ls_cache[new_light] <= d)
+                continue;
+            else
+                ls_cache[new_light] = d;
+        }
+        else
+        {
+            ls_cache.insert(make_pair(new_light, d));
+        }
+
+        // copy and remove current b
+        bm.clear();
+        for (const auto &_b : bitmasks)
+            if (_b != b)
+                bm.push_back(_b);
+
+        auto _d = switch_buttons(new_light, target, bm, ls_cache, new_d, d + 1);
+
+        if (_d < new_d)
+            new_d = _d;
+    }
+
+    return new_d;
+}
+
 size_t switch_buttons(const vector<LightVec> &lights, const vector<vector<iVec>> &buts)
 {
     vector<vector<LightVec>> bitmasks(buts.size());
@@ -232,85 +348,92 @@ size_t switch_buttons(const vector<LightVec> &lights, const vector<vector<iVec>>
             bitmasks[i].push_back(light_indices_to_bitset(ind));
     }
 
-    const auto comp_bitmask = [](const LightVec &a, const LightVec &b)
-    { return a.to_ulong() < b.to_ulong(); };
-
-    const auto comp_bitmask_r = [](const LightVec &a, const LightVec &b)
-    { return a.to_ulong() > b.to_ulong(); };
-
     // try to push buttons to switch all lights on
     size_t num_push = 0;
     for (size_t i = 0; i < lights.size(); ++i)
     {
-        const auto &ls = lights[i]; // light state
-        auto &bm = bitmasks[i];     // bit map
-
-        // bitmasks need to be sorted to iter all possible permutations
-        sort(bm.begin(), bm.end(), comp_bitmask);
-
-        // if we accumulate the bitmasks at position x,
-        // the sum is an even number if the light is OFF
-        // and its an odd number if the light is ON
-        // effectively this means that applying the
-        // same button twice just annulates the first button press
-        size_t n_min = bm.size();
-        vector<LightVec> bm_comp(bm.size());
-        auto iterations = 0;
-        do
-        {
-            // cout << "next iteration; n_min = " << n_min << "\n";
-            // if next permutation creates the first n_min positions
-            // exactly like in the previous iteration,
-            // modify bm and swap in another bitmask
-            bool do_masking = true;
-            if (n_min < bm.size())
-            {
-                do_masking = false;
-                for (auto j = 0; j < n_min; ++j)
-                {
-                    if (bm[j] != bm_comp[j])
-                    {
-                        // vectors are different, do masking
-                        do_masking = true;
-                        break;
-                    }
-                }
-
-                if (!do_masking)
-                    sort(bm.begin() + n_min, bm.end(), comp_bitmask_r);
-            }
-
-            if (do_masking)
-            {
-                LightVec l(0);
-                size_t n = 0;
-                for (; l != ls && n < n_min; ++n)
-                    l ^= bm[n];
-
-                // set new minimum
-                if (n < n_min)
-                {
-                    n_min = n;
-                    bm_comp.resize(n_min);
-                }
-            }
-
-            // copy to compare vec
-            if (n_min < bm.size())
-            {
-                for (auto j = 0; j < n_min; ++j)
-                    bm_comp[j] = bm[j];
-            }
-
-            ++iterations;
-        } while (next_permutation(bm.begin(), bm.end(), comp_bitmask));
-
-        cout << "lights[" << i << "]: " << ls << "; n min: " << n_min << "; iterations: " << iterations << "\n";
-
-        num_push += n_min;
+        unordered_map<LightVec, size_t> ls_cache;
+        num_push += switch_buttons(LightVec(0), lights[i], bitmasks[i], ls_cache, bitmasks[i].size());
     }
 
     return num_push;
+}
+
+// PART 2
+
+struct back_track_result
+{
+    size_t best;
+    bool all_failed;
+};
+
+template <typename J, typename I>
+bool has_val_less_than(const vector<J> &j, const vector<I> &at, const J &val)
+{
+    return any_of(at.begin(), at.end(), [j, val](const auto &i)
+                  { return j[i] < val; });
+}
+
+template <typename J>
+bool all_eq_val(const vector<J> &j, const J &val = 0)
+{
+    return all_of(j.begin(), j.end(), [val](const auto &jj)
+                  { return jj == val; });
+}
+
+template <typename J, typename I>
+void add_at_idx(vector<J> &j, const vector<I> &at, const J &val = 1)
+{
+    for_each(at.begin(), at.end(), [&val, &j](const auto &i)
+             { j[i] += val; });
+}
+
+back_track_result get_joltage_button_press(joltVec &jolt, const vector<iVec> &buts, size_t current_best = numeric_limits<size_t>::max(), const size_t d = 1)
+{
+    if (buts.size() <= 1 || d >= current_best)
+        return {d, false};
+
+    vector<iVec> b2;
+    b2.reserve(buts.size() - 1);
+    back_track_result result{current_best, true};
+
+    for (const auto &b : buts)
+    {
+        // returns true if zero exists in joltage, else false
+        if (!has_val_less_than(jolt, b, 1))
+        {
+            add_at_idx(jolt, b, -1);
+
+            if (all_eq_val(jolt, 0))
+                // finished
+                return {d, false};
+
+            // copy every value except b
+            b2.clear();
+            for_each(buts.begin(), buts.end(), [&b2, &b](const auto &bb)
+                     { if (b != bb) b2.push_back(bb); });
+
+            auto r = get_joltage_button_press(jolt, b2, result.best, d + 1);
+            add_at_idx(jolt, b, 1);
+
+            result.all_failed = r.all_failed;
+            if (r.best < result.best && !r.all_failed)
+                result.best = r.best;
+        }
+    }
+
+    return result;
+}
+
+size_t get_joltage_button_press(vector<joltVec> &joltage, const vector<vector<iVec>> &buts)
+{
+    size_t n_push = 0;
+    for (auto i = 0; i < joltage.size(); ++i)
+    {
+        n_push += get_joltage_button_press(joltage[i], buts[i]).best;
+    }
+
+    return n_push;
 }
 
 int main(int argc, char *argv[])
@@ -342,8 +465,6 @@ int main(int argc, char *argv[])
 
     cout << "read " << lights.size() << " lines\n";
 
-    // sort_by_number_of_lights(lights, buttons, joltage);
-
     // ============== PART 1 ==============
 
     auto min_push = switch_buttons(lights, buttons);
@@ -351,6 +472,10 @@ int main(int argc, char *argv[])
     cout << "min. amount of button pushes: " << min_push << "\n";
 
     // ============== PART 2 ==============
+
+    min_push = get_joltage_button_press(joltage, buttons);
+
+    cout << "min. amount of button pushes: " << min_push << "\n";
 
     return 0;
 }

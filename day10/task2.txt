@@ -1,0 +1,18 @@
+(3) (1,3) (2) (2,3) (0,2) (0,1) {3,5,4,7}
+(0,2,3,4) (2,3) (0,4) (0,1,2) (1,2,3,4) {7,5,12,7,2}
+(0,1,2,3,4) (0,3,4) (0,1,2,4,5) (1,2) {10,11,11,5,10,5}
+
+     (3)    (1,3)    (2)        {}
+      0      0        0         3
+ a*   0  +b* 1   +c*  0  ... =  5
+      0      0        1         4
+      1      1        0         7
+
+1. gleichungssystem bauen
+   - Matrix(m, n): anzahl buttons = m, anzahl lights = m
+   - mehr buttons als lights (unbestimmt)
+     -> vektoren vernachlässigen, die sich als linearkombination der anderen Vektoren darstellen lassen
+     -> von der Lösung die nötigen knopfdrücke der linearkombinationen abziehen
+   - mehr lights als buttons (überbestimmt)
+     -> das rätsel MUSS lösbar sein, also existiert lineare abhängigkeit bei der zeilen zu 0 werden können
+     -> diese Zeilen eliminieren
