@@ -121,12 +121,8 @@ if __name__ == "__main__":
 
     print(f"\n===== Part 2 =====")
     # count number of paths containing fft and dac
-    # try:
     start_p2 = time.perf_counter()
     n_conn = traverse_connections2(conn)
     time_p2 = (time.perf_counter() - start_p2) * 1000
     print(f"Number of connections {n_conn}")
     print(f"Time: {time_p2:.3f}ms")
-    # except KeyError as e:
-    #     print(
-    #         f"KeyError: {int_to_key(e.args[0])} not found in connections. Check input file for missing keys.")
