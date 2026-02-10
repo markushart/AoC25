@@ -97,7 +97,7 @@ def build_beam_graph(m: np.ndarray,
         x, y = xy
         if x >= m.shape[0] - 1:
             # end
-            g[xy] = [m.shape]
+            g[xy] = []
             return g
         elif m[x + 1, y] == TACHSPLIT_I:
             # splitter
@@ -116,29 +116,23 @@ def build_beam_graph(m: np.ndarray,
 
 def traverse_connections(conn: dict[int, list[int]],
                          curr_key: tuple[int, int],
-                         target_key: tuple[int, int],
-                         abort_keys: list[tuple[int, int]] = [],
                          traversal_cache: dict[int, int] = dict()) -> int:
 
-    n_conn = 0
-    if curr_key in abort_keys:
-        n_conn = 0
-    elif curr_key in traversal_cache:
+    if curr_key in traversal_cache:
         # check cache
-        n_conn = traversal_cache[curr_key]
-    elif curr_key == target_key:
-        # break recursion
-        n_conn = 1
+        return traversal_cache[curr_key]
+    elif not conn[curr_key]:
+        # empty list means end of path
+        return 1
     else:
-        for c in conn[curr_key]:
-            n_conn += traverse_connections(conn, curr_key=c,
-                                           target_key=target_key,
-                                           abort_keys=abort_keys,
-                                           traversal_cache=traversal_cache)
+        # sum recursive calls for all connections
+        traversal_cache.update({curr_key: sum(traverse_connections(
+            conn,
+            curr_key=c,
+            traversal_cache=traversal_cache
+        ) for c in conn[curr_key])})
 
-        traversal_cache.update({curr_key: n_conn})
-
-    return n_conn
+        return traversal_cache[curr_key]
 
 
 def count_possible_tachion_worlds(m: np.ndarray, ) -> int:
@@ -146,11 +140,11 @@ def count_possible_tachion_worlds(m: np.ndarray, ) -> int:
     # build graph of beam connections
     g = build_beam_graph(m)
 
+    # start key
+    sk = (0, int(np.argwhere(m[0] == TACHSTART_I)[0, 0])) 
+
     # reused solution for day 11 to count paths through the graph
-    return traverse_connections(g,
-                                curr_key=(
-                                    0, int(np.argwhere(m[0] == TACHSTART_I)[0, 0])),
-                                target_key=m.shape)
+    return traverse_connections(g, curr_key=sk)
 
 
 if __name__ == "__main__":

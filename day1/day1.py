@@ -1,4 +1,4 @@
-
+import math
 
 def read_input(fname: str) -> list[str]:
 
@@ -14,38 +14,36 @@ def rotations_to_diffs(rots: list[str]) -> list[int]:
 def count_zero_events(ini_rot: int, rots: list[int], rot_max: int) -> int:
 
     # cumulated sum
-    csum = [ini_rot]
-
+    csum = ini_rot 
+    zeros = 0
     for r in rots:
-        csum.append(csum[-1] + r)
+        csum += r
+        # add if dial is at zero after rotation
+        zeros += int(csum % rot_max == 0)
+    return zeros 
 
-    csum = [c % rot_max for c in csum]
-
-    # if the dial is exactly zero
-    exact_zero = len(list(filter(lambda x: x == 0, csum)))
-
-    return exact_zero
 
 def count_zero_crossing(ini_rot: int, rots: list[int], rot_max: int):
 
-    # number of times we crossed zero
     zeros = 0
-
-    ticks = ini_rot
+    pos = ini_rot  # unwrapped position
 
     for r in rots:
-        while r > 0:
-            r -= 1
-            ticks = (ticks + 1) % rot_max
-            zeros += int(ticks == 0)
-        while r < 0:
-            r += 1
-            ticks = (ticks - 1) % rot_max
-            zeros += int(ticks == 0)
+        rsign = -1 if r > 0 else 1
+        pnow = pos + int(pos % rot_max == 0) * rsign
+        pnext = (pos + r) + int((pos + r) % rot_max == 0) * rsign
+        zeros += abs(pnext // rot_max - pnow // rot_max)
+        pos += r
 
     return zeros
 
+
 if __name__ == "__main__":
+
+    import time
+    import sys
+
+    fname = sys.argv[1] if len(sys.argv) > 1 else "input.txt"
 
     # initial value is 50
     ini_rot = 50
@@ -54,11 +52,15 @@ if __name__ == "__main__":
     rot_max = 100
 
     # values to rotate to left (-) or right (+) from the input file
-    diffs = rotations_to_diffs(rots=read_input("input.txt"))
+    diffs = rotations_to_diffs(rots=read_input(fname))
 
+    # add performance measurement
+    start_p1 = time.perf_counter()
     ez = count_zero_events(ini_rot, diffs, rot_max)
+    time_p1 = (time.perf_counter() - start_p1) * 1000
+    print(f"answer to day 1, part 1: {ez} (time: {time_p1:.3f}ms)")
+
+    start_p2 = time.perf_counter()
     cz = count_zero_crossing(ini_rot, diffs, rot_max)
-    print(f"answer to day 1, part 1: {ez}")
-    print(f"answer to day 1, part 2: {cz}")
-
-
+    time_p2 = (time.perf_counter() - start_p2) * 1000
+    print(f"answer to day 1, part 2: {cz} (time: {time_p2:.3f}ms)")
