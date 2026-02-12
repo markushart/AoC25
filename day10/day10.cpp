@@ -14,6 +14,28 @@ using idx_t = size_t;
 using iVec = vector<idx_t>;
 using joltage_t = int;
 using joltVec = vector<joltage_t>;
+    using chrono::duration;
+    using chrono::duration_cast;
+    using chrono::high_resolution_clock;
+    using chrono::milliseconds;
+    using chrono::time_point;
+    using chrono::system_clock;
+
+// build a clock to measure performance time
+struct PerfClock {
+
+    time_point<system_clock> t_start;
+
+    void start() {
+        t_start = system_clock::now();
+    }
+
+    milliseconds get_lap() {
+        auto t2 = system_clock::now();
+        return duration_cast<milliseconds>(t2 - t_start);
+    }
+
+};
 
 // The manual describes one machine per line.
 // Each line contains a single indicator light diagram in [square brackets],
@@ -221,67 +243,6 @@ LightVec light_indices_to_bitset(const iVec &i_vec)
     return b;
 }
 
-template <typename T>
-bool next_combination(vector<T> &v, const size_t n)
-{
-    // swap in element in vector past N which is bigger than position x
-    // return true while next combination exists, return false if range from begin to end is
-    // sorted descending
-    // n = 1
-    // -----------
-    // 0 1 2 3 4 5
-    // 1 0 2 3 4 5
-    // 2 0 1 3 4 5
-    // 3 0 1 2 4 5
-    // 4 0 1 2 3 5
-    // 5 0 1 2 3 4
-    // n = 2
-    // -----------
-    // 0 1 2 3 4 5
-    // 0 2 1 3 4 5
-    // 0 3 1 2 4 5
-    // 0 4 1 2 3 5
-    // 0 5 1 2 3 4
-    // -----------
-    // 1 0 2 3 4 5
-    // 1 2 0 3 4 5
-    // 1 3 0 2 4 5
-    // 1 4 0 2 3 5
-    // 1 5 0 2 3 4
-    // ...
-    // -----------
-    // 5 0 1 2 3 4
-    // 5 1 0 2 3 4
-    // 5 2 0 1 3 4
-    // 5 3 0 1 2 4
-    // 5 4 0 1 2 3
-
-    for (auto i = n; i > 0; --i)
-    {
-        // value to check for swap
-        auto it1 = v.begin() + i - 1;
-        // value to swap with
-        auto it2 = lower_bound(v.begin() + i, v.end(), *it1);
-
-        if (it2 != v.end())
-        {
-            iter_swap(it1, it2);
-            break;
-        }
-    }
-
-    // check if the first n values are bigger than their neighbors
-    bool finished = true;
-    for (auto i = 0; i < n; ++i)
-        for (auto j = i + 1; j < v.size(); ++j)
-            if (v[i] < v[j])
-            {
-                finished = false;
-                break;
-            }
-    return finished;
-}
-
 size_t switch_buttons(const LightVec lights, const LightVec &target, const vector<LightVec> &bitmasks, unordered_map<LightVec, size_t> &ls_cache, const size_t current_best, const size_t d = 1)
 {
     if (bitmasks.size() <= 1)
@@ -361,88 +322,16 @@ size_t switch_buttons(const vector<LightVec> &lights, const vector<vector<iVec>>
 
 // PART 2
 
-struct back_track_result
-{
-    size_t best;
-    bool all_failed;
-};
-
-template <typename J, typename I>
-bool has_val_less_than(const vector<J> &j, const vector<I> &at, const J &val)
-{
-    return any_of(at.begin(), at.end(), [j, val](const auto &i)
-                  { return j[i] < val; });
-}
-
-template <typename J>
-bool all_eq_val(const vector<J> &j, const J &val = 0)
-{
-    return all_of(j.begin(), j.end(), [val](const auto &jj)
-                  { return jj == val; });
-}
-
-template <typename J, typename I>
-void add_at_idx(vector<J> &j, const vector<I> &at, const J &val = 1)
-{
-    for_each(at.begin(), at.end(), [&val, &j](const auto &i)
-             { j[i] += val; });
-}
-
-back_track_result get_joltage_button_press(joltVec &jolt, const vector<iVec> &buts, size_t current_best = numeric_limits<size_t>::max(), const size_t d = 1)
-{
-    if (buts.size() <= 1 || d >= current_best)
-        return {d, false};
-
-    vector<iVec> b2;
-    b2.reserve(buts.size() - 1);
-    back_track_result result{current_best, true};
-
-    for (const auto &b : buts)
-    {
-        // returns true if zero exists in joltage, else false
-        if (!has_val_less_than(jolt, b, 1))
-        {
-            add_at_idx(jolt, b, -1);
-
-            if (all_eq_val(jolt, 0))
-                // finished
-                return {d, false};
-
-            // copy every value except b
-            b2.clear();
-            for_each(buts.begin(), buts.end(), [&b2, &b](const auto &bb)
-                     { if (b != bb) b2.push_back(bb); });
-
-            auto r = get_joltage_button_press(jolt, b2, result.best, d + 1);
-            add_at_idx(jolt, b, 1);
-
-            result.all_failed = r.all_failed;
-            if (r.best < result.best && !r.all_failed)
-                result.best = r.best;
-        }
-    }
-
-    return result;
-}
-
 size_t get_joltage_button_press(vector<joltVec> &joltage, const vector<vector<iVec>> &buts)
 {
     size_t n_push = 0;
-    for (auto i = 0; i < joltage.size(); ++i)
-    {
-        n_push += get_joltage_button_press(joltage[i], buts[i]).best;
-    }
 
     return n_push;
 }
 
 int main(int argc, char *argv[])
 {
-    using std::chrono::duration;
-    using std::chrono::duration_cast;
-    using std::chrono::high_resolution_clock;
-    using std::chrono::milliseconds;
-
+    PerfClock clock;
     vector<LightVec> lights;
     vector<vector<iVec>> buttons;
     vector<joltVec> joltage;
@@ -457,25 +346,29 @@ int main(int argc, char *argv[])
     else
         return -1;
 
+        clock.start();
     if (read_input(fname, lights, buttons, joltage))
     {
         cout << "cannot read file " << fname << "\n";
         return -1;
     }
 
-    cout << "read " << lights.size() << " lines\n";
+    cout << "read " << lights.size() << " lines in " << clock.get_lap().count() << "(ms)\n";
 
     // ============== PART 1 ==============
 
+    cout << "=============== PART 1 ===============\n";
+    clock.start();
     auto min_push = switch_buttons(lights, buttons);
-
-    cout << "min. amount of button pushes: " << min_push << "\n";
+    cout << "min. amount of button pushes: " << min_push << " discovered in " << clock.get_lap().count() << "(ms)\n";
 
     // ============== PART 2 ==============
 
+    cout << "=============== PART 2 ===============\n";
+    clock.start();
     min_push = get_joltage_button_press(joltage, buttons);
+    cout << "min. amount of button pushes: " << min_push << " discovered in " << clock.get_lap().count() << "(ms)\n";
 
-    cout << "min. amount of button pushes: " << min_push << "\n";
 
     return 0;
 }
