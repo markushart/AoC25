@@ -9,11 +9,13 @@
 #include <algorithm>
 #include <array>
 #include <unordered_map>
+#include <unordered_set>
 #include <chrono>
+#include <queue>
 
 using namespace std;
 
-using et = long;
+using et = long long;
 
 template <typename T>
 void vec_diff(const vector<T> &a, const vector<T> &b, vector<T> &x)
@@ -25,7 +27,7 @@ void vec_diff(const vector<T> &a, const vector<T> &b, vector<T> &x)
 
     x.resize(a.size());
 
-    for (auto i = 0; i < a.size(); ++i)
+    for (size_t i = 0; i < a.size(); ++i)
         x[i] = a[i] - b[i];
 }
 
@@ -48,27 +50,41 @@ T straight_line_dist_squared(const vector<T> &v1, const vector<T> &v2)
     return straight_line_dist_squared(diff);
 }
 
+using candidate = std::pair<et, size_t>;
+
 template <typename T>
 struct Node
 {
+    constexpr static const size_t END = numeric_limits<size_t>::max();
 
     vector<T> p{0, 0, 0};
 
-    size_t left = numeric_limits<size_t>::max(),
-           right = numeric_limits<size_t>::max();
+    size_t left = END,
+           right = END;
 };
-
 template <typename T>
 struct NNQuery
 {
+    struct comp
+    {
+        bool operator()(const candidate l, const candidate r) const { return l.first < r.first; }
+    } custom_less;
+
     vector<T> p{0, 0, 0};
     size_t n_nearest = 1;
-    vector<size_t> nearest;
+    // vector<size_t> nearest;
+    priority_queue<candidate, vector<candidate>, comp> nearest;
     vector<Node<T>> *nodes = nullptr;
 
-    NNQuery(const vector<T> &p, size_t n_nearest, vector<Node<T>> *const nodes) : p{p}, n_nearest{n_nearest}, nodes{nodes}
+    vector<size_t> final_results;
+
+    NNQuery(size_t n_nearest, vector<Node<T>> *const nodes) : n_nearest{n_nearest}, nodes{nodes}
     {
-        this->nearest.reserve(this->n_nearest + 1);
+    }
+
+    void set_p(const vector<T> &p)
+    {
+        this->p = p;
     }
 
     bool full() const
@@ -81,36 +97,26 @@ struct NNQuery
         return nearest.empty();
     }
 
-    void insert(size_t candidate)
+    void insert(const size_t candidate)
     {
         if (nodes == nullptr)
             return;
         if (candidate >= nodes->size())
             return;
 
-        if (empty())
-            nearest.push_back(candidate);
-        else
-        {
-            // insert candidates sorted by distance to target point
-            auto i = lower_bound(nearest.begin(), nearest.end(), candidate, [&](auto &x1, auto &x2)
-                                 { return straight_line_dist_squared(p, (*nodes)[x1].p) <
-                                          straight_line_dist_squared(p, (*nodes)[x2].p); });
+        T dist_sq = straight_line_dist_squared(p, (*nodes)[candidate].p);
 
-            if (i < nearest.end())
-            {
-                nearest.insert(i, candidate);
-                if (full())
-                    nearest.resize(n_nearest);
-            }
-        }
+        nearest.push({dist_sq, candidate});
+        // keep only k
+        if (nearest.size() > n_nearest)
+            nearest.pop();
     }
 
     array<size_t, 2> get_next_child(const size_t r, const size_t k) const
     {
 
         if (nodes == nullptr)
-            return {numeric_limits<T>::max(), numeric_limits<T>::max()};
+            return {Node<T>::END, Node<T>::END};
         if (r >= nodes->size())
             return {nodes->size(), nodes->size()};
 
@@ -120,45 +126,32 @@ struct NNQuery
         if (p[k % p.size()] < root.p[k % p.size()])
             return {root.left, root.right};
         else
-            return {root.left, root.right};
+            return {root.right, root.left};
     }
 
     bool should_traverse_other_branch(const size_t r, const size_t k)
     {
-        if (nodes == nullptr)
+        if (nodes == nullptr || r >= nodes->size())
             return false;
-        else if (r >= nodes->size())
-            return false;
-        else if (!full())
-            return true;
-        else
-        {
-            // we need to check if other half of tree needs to be traversed
-            const auto d = (*nodes)[r].p[k % p.size()] - p[k % p.size()];
-            for (auto &i : nearest)
-            {
-                auto rad_sq = straight_line_dist_squared(p, (*nodes)[i].p);
 
-                if (d * d < rad_sq)
-                {
-                    return true;
-                };
-            }
-            return false;
-        }
+        if (!full())
+            return true;
+
+        // we need to check if other half of tree needs to be traversed
+        const auto d = (*nodes)[r].p[k % p.size()] - p[k % p.size()];
+
+        return d * d < nearest.top().first;
     }
 
     void search_nearest_node(size_t r = 0, size_t k = 0)
     {
-        if (nodes == nullptr)
-            return;
-        else if (r >= nodes->size())
+        if (nodes == nullptr || r >= nodes->size())
             // reached a leaf
             return;
 
         insert(r);
 
-        auto branches = get_next_child(r, k);
+        const auto branches = get_next_child(r, k);
 
         // check if r nearer than any of the nearest
         search_nearest_node(branches[0], k + 1);
@@ -172,11 +165,31 @@ struct NNQuery
                 search_nearest_node(branches[1], k + 1);
             }
         }
+
+        if (k == 0)
+            finalize_results();
+    }
+
+    void finalize_results()
+    {
+        final_results.clear();
+        final_results.reserve(nearest.size());
+
+        // Pop everything out of the queue
+        while (!nearest.empty())
+        {
+            final_results.push_back(nearest.top().second);
+            nearest.pop();
+        }
+
+        // Since we popped from a max-heap, the results are currently worst-to-best.
+        // Reverse the vector so it is sorted best-to-worst (closest to furthest).
+        reverse(final_results.begin(), final_results.end());
     }
 
     size_t get_nearest_idx(const size_t n) const
     {
-        return nearest.at(n);
+        return final_results.at(n);
     }
 
     vector<T> &get_nearest_point(const size_t n) const
@@ -224,10 +237,10 @@ void fill_distance_matrix(const vector<vector<T>> &n, vector<vector<T>> &d)
 {
     // build distance matrix
     d.resize(n.size());
-    for (auto i = 0; i < n.size(); ++i)
+    for (size_t i = 0; i < n.size(); ++i)
     {
         d[i].resize(n.size());
-        for (auto j = 0; j < n.size(); ++j)
+        for (size_t j = 0; j < n.size(); ++j)
         {
             if (i == j)
             {
@@ -322,6 +335,53 @@ size_t insert_kd_tree(list<vector<T>> &p,
 }
 
 template <typename T>
+bool is_kd_tree(
+    const vector<Node<T>> &nodes,
+    unordered_set<size_t> &visited,
+    size_t root = 0,
+    size_t depth = 0)
+{
+    if (root >= nodes.size())
+        return false;
+
+    if (!visited.insert(root).second)
+        return false; // cycle detected
+
+    const Node<T> &n = nodes[root];
+    const size_t axis = depth % 3;
+
+    cout << "r: " << root << " l: " << n.left << " r: " << n.right << "\n";
+
+    // left child
+    if (n.left != Node<T>::END)
+    {
+        if (n.left == root || n.left >= nodes.size())
+            return false;
+
+        if (nodes[n.left].p[axis] >= n.p[axis])
+            return false;
+
+        if (!is_kd_tree(nodes, visited, n.left, depth + 1))
+            return false;
+    }
+
+    // right child
+    if (n.right != Node<T>::END)
+    {
+        if (n.right == root || n.right >= nodes.size())
+            return false;
+
+        if (nodes[n.right].p[axis] < n.p[axis])
+            return false;
+
+        if (!is_kd_tree(nodes, visited, n.right, depth + 1))
+            return false;
+    }
+
+    return true;
+}
+
+template <typename T>
 void build_distance_tree(const vector<vector<T>> &p, vector<Node<T>> &n)
 {
     if (!p.size())
@@ -341,9 +401,9 @@ pair<K, K> get_closest_pair(const vector<vector<T>> &dist, const T min_dist)
 {
     auto p = make_pair<K, K>(static_cast<K>(dist.size() > 0), 0);
 
-    auto new_min_dist = numeric_limits<T>::max();
-    for (auto i = 0; i < dist.size(); ++i)
-        for (auto j = 0; j < dist[i].size(); ++j)
+    auto new_min_dist = Node<T>::END;
+    for (size_t i = 0; i < dist.size(); ++i)
+        for (size_t j = 0; j < dist[i].size(); ++j)
             if (dist[i][j] < new_min_dist && min_dist < dist[i][j])
             {
                 new_min_dist = dist[i][j];
@@ -388,26 +448,29 @@ int join_groups(typename list<vector<K>>::iterator g1, typename list<vector<K>>:
 }
 
 template <typename T, typename K>
-void group_points(const SortedDistancePairs<T, K> &dist, list<vector<K>> &groups, const size_t ndist)
+void group_points(vector<Node<T>> &dist, list<vector<K>> &groups, const size_t ndist)
 {
 
     if (dist.empty() || ndist > dist.size())
         // max number of distances possible reached
         return;
 
+    NNQuery querry(2, &dist);
+
     // init groups where every group contains one point
     groups.clear();
-    for (const auto &i : dist.index)
+    for (size_t i = 0; i < dist.size(); ++i)
         groups.push_back({i});
 
     for (size_t bi = 0; bi < ndist; ++bi)
     {
-
-        const auto &p = dist.get_pair(bi);
+        querry.set_p(dist[bi].p);
+        querry.search_nearest_node();
+        const auto idx_pair = make_pair(bi, querry.get_nearest_idx(1));
 
         // search for points in existing groups
-        if (join_groups(get_point_in_group(groups, p.first),
-                        get_point_in_group(groups, p.second),
+        if (join_groups(get_point_in_group(groups, idx_pair.first),
+                        get_point_in_group(groups, idx_pair.second),
                         groups) != 0)
         {
             cout << "Error joining groups\n";
@@ -468,7 +531,6 @@ int main(int argc, char *argv[])
     vector<vector<et>> nums;
     vector<Node<et>> nodes;
     vector<vector<et>> dist;
-    SortedDistancePairs<et, size_t> sdp;
 
     if (argc >= 2)
     {
@@ -498,23 +560,20 @@ int main(int argc, char *argv[])
     }
 
     auto t1 = high_resolution_clock::now();
-    fill_distance_matrix(nums, dist);
-    sdp.fill(dist);
-    auto t2 = high_resolution_clock::now();
-    auto ms_read = duration_cast<milliseconds>(t2 - t1);
-    cout << "time for reading and distance matrix: " << ms_read.count() << "(ms)\n";
-
-    /* ========== PART 1 ========== */
-
     // build kd-tree (not used in this example, maybe use later for optimization)
     build_distance_tree(nums, nodes);
+    auto t2 = high_resolution_clock::now();
+    auto ms_read = duration_cast<milliseconds>(t2 - t1);
     cout << "inserted " << nodes.size() << "/" << nums.size() << " nodes" << "\n";
+    cout << "time for reading and distance matrix: " << ms_read.count() << "(ms)\n";
+
+    // ========== PART 1 ========== //
 
     // group the points
     list<vector<size_t>> groups;
 
     t1 = high_resolution_clock::now();
-    group_points(sdp, groups, ndist);
+    group_points(nodes, groups, ndist);
     t2 = high_resolution_clock::now();
     auto ms_group1 = duration_cast<milliseconds>(t2 - t1);
     cout << "time for grouping (Part 1): " << ms_group1.count() << "(ms)\n";
@@ -532,31 +591,31 @@ int main(int argc, char *argv[])
 
     cout << "Product of sizes of " << nbiggest << " biggest groups: " << bgp << "\n";
 
-    /* ========== PART 2 ========== */
-    t1 = high_resolution_clock::now();
-    const size_t ngroups = 1;
-    auto last_joined = group_points_to_n_groups(sdp, groups, ngroups);
-    // answer to part 2: product of last joined points x axis
-    const auto answer2 = nums[last_joined.first][0] * nums[last_joined.second][0];
-    t2 = high_resolution_clock::now();
-    auto ms_group2 = duration_cast<milliseconds>(t2 - t1);
-    cout << "time for grouping (Part 2): " << ms_group2.count() << "(ms)\n";
+    // ========== PART 2 ========== //
+    // t1 = high_resolution_clock::now();
+    // const size_t ngroups = 1;
+    // auto last_joined = group_points_to_n_groups(sdp, groups, ngroups);
+    // // answer to part 2: product of last joined points x axis
+    // const auto answer2 = nums[last_joined.first][0] * nums[last_joined.second][0];
+    // t2 = high_resolution_clock::now();
+    // auto ms_group2 = duration_cast<milliseconds>(t2 - t1);
+    // cout << "time for grouping (Part 2): " << ms_group2.count() << "(ms)\n";
 
-    if (groups.size() != ngroups)
-    {
-        cout << "Error: could not group into 2 groups\n";
-        return -1;
-    }
-    else if (last_joined.first == 0 && last_joined.second == 0)
-    {
-        cout << "Error: last joined point pair is invalid\n";
-        return -1;
-    }
+    // if (groups.size() != ngroups)
+    // {
+    //     cout << "Error: could not group into 2 groups\n";
+    //     return -1;
+    // }
+    // else if (last_joined.first == 0 && last_joined.second == 0)
+    // {
+    //     cout << "Error: last joined point pair is invalid\n";
+    //     return -1;
+    // }
 
-    cout << "Last joined point pair:\n";
-    cout << last_joined.first << " {" << nums[last_joined.first][0] << ", " << nums[last_joined.first][1] << ", " << nums[last_joined.first][2] << "}\n";
-    cout << last_joined.second << " {" << nums[last_joined.second][0] << ", " << nums[last_joined.second][1] << ", " << nums[last_joined.second][2] << "}\n";
-    cout << "Answer to part 2: " << answer2 << "\n";
+    // cout << "Last joined point pair:\n";
+    // cout << last_joined.first << " {" << nums[last_joined.first][0] << ", " << nums[last_joined.first][1] << ", " << nums[last_joined.first][2] << "}\n";
+    // cout << last_joined.second << " {" << nums[last_joined.second][0] << ", " << nums[last_joined.second][1] << ", " << nums[last_joined.second][2] << "}\n";
+    // cout << "Answer to part 2: " << answer2 << "\n";
 
     return 0;
 }
