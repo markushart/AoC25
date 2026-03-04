@@ -175,16 +175,14 @@ void read_input(const string &fname, vector<vector<T>> &nums)
     {
         while (getline(rfile, line))
         {
-            if (line.empty())
-                continue;
+            if (line.empty()) continue;
             nums.push_back(vector<T>());
             size_t sep_pos_start = 0, sep_pos_end = 0;
 
             while (sep_pos_end < line.length())
             {
                 sep_pos_end = line.find(',', sep_pos_start);
-                if (sep_pos_end == string::npos)
-                    sep_pos_end = line.length();
+                if (sep_pos_end == string::npos) sep_pos_end = line.length();
 
                 if (sep_pos_start < sep_pos_end)
                 {
@@ -200,36 +198,30 @@ void read_input(const string &fname, vector<vector<T>> &nums)
 template <typename T, typename K>
 struct KNNPairs
 {
-    struct Edge
-    {
+    struct Edge {
         T dist_sq;
         K u, v;
-        bool operator>(const Edge &other) const { return dist_sq > other.dist_sq; }
+        bool operator>(const Edge& other) const { return dist_sq > other.dist_sq; }
     };
     priority_queue<Edge, vector<Edge>, greater<Edge>> pq;
 
-    void fill(vector<Node<T>> &nodes, size_t k_neighbors)
-    {
+    void fill(vector<Node<T>> &nodes, size_t k_neighbors) {
         NNQuery<T> query(k_neighbors + 1, &nodes);
-        for (size_t i = 0; i < nodes.size(); ++i)
-        {
+        for (size_t i = 0; i < nodes.size(); ++i) {
             query.set_p(nodes[i].p);
             query.search_nearest_node();
-            for (size_t j = 1; j < query.final_results.size(); ++j)
-            {
+            for (size_t j = 1; j < query.final_results.size(); ++j) {
                 K neighbor_idx_in_nodes = query.get_nearest_idx(j);
                 K u = (K)nodes[i].id;
                 K v = (K)nodes[neighbor_idx_in_nodes].id;
-                if (u < v)
-                {
+                if (u < v) {
                     pq.push({straight_line_dist_squared(nodes[i].p, nodes[neighbor_idx_in_nodes].p), u, v});
                 }
             }
         }
     }
 
-    pair<K, K> pop_closest()
-    {
+    pair<K, K> pop_closest() {
         auto top = pq.top();
         pq.pop();
         return {top.u, top.v};
@@ -239,32 +231,27 @@ struct KNNPairs
     bool empty() const { return pq.empty(); }
 };
 
-struct DSU
-{
+struct DSU {
     vector<int> parent;
     vector<int> sz;
     int num_sets;
 
-    DSU(int n) : num_sets(n)
-    {
+    DSU(int n) : num_sets(n) {
         parent.resize(n);
         iota(parent.begin(), parent.end(), 0);
         sz.assign(n, 1);
     }
 
-    int find(int i)
-    {
+    int find(int i) {
         if (parent[i] == i)
             return i;
         return parent[i] = find(parent[i]);
     }
 
-    bool unite(int i, int j)
-    {
+    bool unite(int i, int j) {
         int root_i = find(i);
         int root_j = find(j);
-        if (root_i != root_j)
-        {
+        if (root_i != root_j) {
             if (sz[root_i] < sz[root_j])
                 swap(root_i, root_j);
             parent[root_j] = root_i;
@@ -279,17 +266,14 @@ struct DSU
 template <typename T, typename K>
 void group_points(vector<Node<T>> &nodes, list<vector<K>> &groups, const size_t n_connections)
 {
-    if (nodes.empty())
-        return;
+    if (nodes.empty()) return;
 
     KNNPairs<T, K> knn;
-    knn.fill(nodes, 20);
+    knn.fill(nodes, 20); 
 
     int max_id = 0;
-    for (const auto &n : nodes)
-        if ((int)n.id > max_id)
-            max_id = (int)n.id;
-    DSU dsu(max_id + 1); // Max possible index, or more precisely max(id)+1
+    for(const auto& n : nodes) if((int)n.id > max_id) max_id = (int)n.id;
+    DSU dsu(max_id + 1);
 
     for (size_t i = 0; i < n_connections && !knn.empty(); ++i)
     {
@@ -299,12 +283,10 @@ void group_points(vector<Node<T>> &nodes, list<vector<K>> &groups, const size_t 
 
     groups.clear();
     unordered_map<int, vector<K>> components;
-    for (const auto &n : nodes)
-    {
+    for (const auto& n : nodes) {
         components[dsu.find(n.id)].push_back((K)n.id);
     }
-    for (auto &[root, members] : components)
-    {
+    for (auto& [root, members] : components) {
         groups.push_back(members);
     }
 
@@ -315,37 +297,82 @@ void group_points(vector<Node<T>> &nodes, list<vector<K>> &groups, const size_t 
 template <typename T, typename K>
 pair<K, K> group_points_to_n_groups(vector<Node<T>> &nodes, list<vector<K>> &groups, const size_t ngroups)
 {
-    if (nodes.empty())
-        return {0, 0};
+    if (nodes.empty()) return {0, 0};
 
-    KNNPairs<T, K> knn;
-    knn.fill(nodes, 100);
+    struct LazyEdge {
+        T dist_sq;
+        K u_id;
+        K u_idx_in_nodes;
+        int next_k;
+        bool operator>(const LazyEdge& other) const { return dist_sq > other.dist_sq; }
+    };
+    priority_queue<LazyEdge, vector<LazyEdge>, greater<LazyEdge>> global_pq;
+
+    // Initialize: Get the 1st nearest neighbor for every point
+    for (size_t i = 0; i < nodes.size(); ++i) {
+        NNQuery<T> query(2, &nodes); // k=2 to get self (0) and 1st neighbor (1)
+        query.set_p(nodes[i].p);
+        query.search_nearest_node();
+        if (query.final_results.size() > 1) {
+            K v_node_idx = query.get_nearest_idx(1);
+            global_pq.push({straight_line_dist_squared(nodes[i].p, nodes[v_node_idx].p), (K)nodes[i].id, (K)i, 2});
+        }
+    }
 
     int max_id = 0;
-    for (const auto &n : nodes)
-        if ((int)n.id > max_id)
-            max_id = (int)n.id;
+    for(const auto& n : nodes) if((int)n.id > max_id) max_id = (int)n.id;
     DSU dsu(max_id + 1);
-
+    
     pair<K, K> last_joined = {0, 0};
 
-    while (!knn.empty() && (size_t)dsu.num_sets > ngroups)
+    while (!global_pq.empty() && (size_t)dsu.num_sets > ngroups)
     {
-        auto p = knn.pop_closest();
-        if (dsu.unite(p.first, p.second))
-        {
-            last_joined = p;
+        auto top = global_pq.top();
+        global_pq.pop();
+
+        K u_id = top.u_id;
+        // The current neighbor we are looking at is at query.get_nearest_idx(top.next_k - 1)
+        // But we need to run the query again to find out what it was...
+        // Better: store the neighbor in the LazyEdge too.
+        
+        // Re-query to find the actual v_id for the top.next_k - 1 neighbor
+        NNQuery<T> query(top.next_k, &nodes);
+        query.set_p(nodes[top.u_idx_in_nodes].p);
+        query.search_nearest_node();
+        
+        if (query.final_results.size() >= (size_t)top.next_k) {
+            K v_node_idx = query.get_nearest_idx(top.next_k - 1);
+            K v_id = (K)nodes[v_node_idx].id;
+            
+            if (dsu.unite(u_id, v_id)) {
+                last_joined = {u_id, v_id};
+            }
+
+            // Lazy Expand: Get the NEXT neighbor (top.next_k)
+            if (query.final_results.size() < (size_t)(top.next_k + 1)) {
+                 // Try searching deeper
+                 NNQuery<T> deeper_query(top.next_k + 1, &nodes);
+                 deeper_query.set_p(nodes[top.u_idx_in_nodes].p);
+                 deeper_query.search_nearest_node();
+                 if (deeper_query.final_results.size() >= (size_t)(top.next_k + 1)) {
+                     K next_v_node_idx = deeper_query.get_nearest_idx(top.next_k);
+                     global_pq.push({straight_line_dist_squared(nodes[top.u_idx_in_nodes].p, nodes[next_v_node_idx].p), 
+                                     u_id, top.u_idx_in_nodes, top.next_k + 1});
+                 }
+            } else {
+                 K next_v_node_idx = query.get_nearest_idx(top.next_k);
+                 global_pq.push({straight_line_dist_squared(nodes[top.u_idx_in_nodes].p, nodes[next_v_node_idx].p), 
+                                 u_id, top.u_idx_in_nodes, top.next_k + 1});
+            }
         }
     }
 
     groups.clear();
     unordered_map<int, vector<K>> components;
-    for (const auto &n : nodes)
-    {
+    for (const auto& n : nodes) {
         components[dsu.find(n.id)].push_back((K)n.id);
     }
-    for (auto &[root, members] : components)
-    {
+    for (auto& [root, members] : components) {
         groups.push_back(members);
     }
 
@@ -359,8 +386,7 @@ size_t insert_kd_tree(list<pair<vector<T>, size_t>> &p,
                       vector<Node<T>> &n,
                       size_t k)
 {
-    if (p.empty())
-        return Node<T>::END;
+    if (p.empty()) return Node<T>::END;
 
     const size_t d = k % p.front().first.size();
 
@@ -410,23 +436,18 @@ int main(int argc, char *argv[])
     using std::chrono::milliseconds;
 
     string fname = "input.txt";
-    if (argc >= 2)
-        fname = argv[1];
+    if (argc >= 2) fname = argv[1];
 
     size_t nbiggest = 3;
-    if (argc >= 3)
-        nbiggest = stol(argv[2]);
+    if (argc >= 3) nbiggest = stol(argv[2]);
 
     vector<vector<et>> nums;
     read_input(fname, nums);
-    if (nums.empty())
-        return -1;
+    if (nums.empty()) return -1;
 
     size_t n_connections = 1000;
-    if (fname.find("example") != string::npos)
-        n_connections = 10;
-    if (argc >= 4)
-        n_connections = stol(argv[3]);
+    if (fname.find("example") != string::npos) n_connections = 10;
+    if (argc >= 4) n_connections = stol(argv[3]);
 
     vector<Node<et>> nodes;
     auto t1 = high_resolution_clock::now();
@@ -440,12 +461,10 @@ int main(int argc, char *argv[])
     t2 = high_resolution_clock::now();
     cout << "Part 1 grouping: " << duration_cast<milliseconds>(t2 - t1).count() << "ms\n";
 
-    if (nbiggest > groups.size())
-        nbiggest = groups.size();
+    if (nbiggest > groups.size()) nbiggest = groups.size();
     long long bgp = 1;
     auto it = groups.begin();
-    for (size_t i = 0; i < nbiggest; ++i, ++it)
-        bgp *= it->size();
+    for (size_t i = 0; i < nbiggest; ++i, ++it) bgp *= it->size();
     cout << "Part 1 Result: " << bgp << "\n";
 
     t1 = high_resolution_clock::now();
