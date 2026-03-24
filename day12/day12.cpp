@@ -3,77 +3,156 @@
 #include <iostream>
 #include <sstream>
 #include <vector>
-#include <limits>
 #include <numeric>
 #include <algorithm>
-#include <unordered_map>
-#include <unordered_set>
 #include <chrono>
+#include <bitset>
+#include <array>
+
+#include <boost/range/combine.hpp>
 
 using namespace std;
 
-using grid_line_t = vector<bool>;
-using grid_t = vector<grid_line_t>;
+constexpr size_t NUMBER_OF_BITS = 2500;
+using grid_t = bitset<NUMBER_OF_BITS>;
 using grid_list_t = vector<grid_t>;
+
+constexpr size_t X_AXIS = 0, Y_AXIS = 1;
 
 struct Grid
 {
+  size_t m, // number of rows
+      n;    // number of columns
   grid_t omap;
 
-  Grid(size_t m, size_t n)
+  Grid(const size_t m, const size_t n) : m{m}, n{n}
   {
-    omap.resize(m);
+    // in real world we woule need to check if m*n < NUMBER_OF_BITS
+  }
 
-    for (auto &gl : omap)
+  size_t get_m() const noexcept { return m; }
+
+  size_t get_n() const noexcept { return n; }
+
+  size_t grid_size() const noexcept { return m * n; }
+
+  inline array<size_t, 2> idx_1d_to_2d(const size_t idx) const noexcept
+  {
+    return {
+        idx / n, // i
+        idx % n  // j
+    };
+  }
+
+  inline size_t idx_2d_to_1d(const size_t i, const size_t j) const noexcept
+  {
+    return n * i + j;
+  }
+
+  inline bool get_bit(const size_t i, const size_t j) const noexcept
+  {
+    return omap[idx_2d_to_1d(i, j)];
+  }
+
+  inline void set_bit(const size_t i, const size_t j, const bool b) noexcept
+  {
+    omap[idx_2d_to_1d(i, j)] = b;
+  }
+
+  inline bool get_bit_at(const size_t i, const size_t j) const
+  {
+    check_bounds(i, j);
+    return get_bit(i, j);
+  }
+
+  inline void set_bit_at(const size_t i, const size_t j, const bool b)
+  {
+    check_bounds(i, j);
+    set_bit(i, j, b);
+  }
+
+  void mirror(const size_t axis = X_AXIS) noexcept
+  {
+    switch (axis)
     {
-      // init with false
-      gl.resize(n, false);
+    case X_AXIS:
+      for (size_t i = 0; i < m / 2; ++i)
+      {
+        for (size_t j = 0; j < n; ++j)
+        {
+          const size_t opposite_i = m - 1 - i;
+
+          const bool upper_val = get_bit(i, j),
+                     lower_val = get_bit(opposite_i, j);
+
+          set_bit(i, j, lower_val);
+          set_bit(opposite_i, j, upper_val);
+        }
+      }
+      break;
+    case Y_AXIS:
+      for (size_t i = 0; i < m; ++i)
+      {
+        for (size_t j = 0; j < n / 2; ++j)
+        {
+          const size_t opposite_j = n - 1 - j;
+
+          const bool left_val = get_bit(i, j),
+                     right_val = get_bit(i, opposite_j);
+
+          set_bit(i, j, right_val);
+          set_bit(i, opposite_j, left_val);
+        }
+      }
+      break;
+    default:
+      break;
     }
-  }
-
-  size_t get_m() const { return omap.size(); }
-
-  size_t get_n() const
-  {
-    if (omap.empty())
-      return 0;
-    else
-      return omap.front().size();
-  }
-
-  size_t grid_size() const { return get_n() * get_m(); }
-
-  void mirror()
-  {
-    for (auto &row : omap)
-      reverse(row.begin(), row.end());
   }
 
   void rotate_right()
   {
-    // rotate grid 90 degrees
-    size_t m = get_m();
-    size_t n = get_n();
-
-    grid_t new_map(n, grid_line_t(m));
+    Grid rotated(n, m);
 
     for (size_t i = 0; i < m; ++i)
       for (size_t j = 0; j < n; ++j)
-        new_map[j][m - 1 - i] = omap[i][j];
+        rotated.set_bit(j, m - i - 1, get_bit(i, j));
 
-    omap.swap(new_map);
+    std::swap(*this, rotated);
   }
 
-  bool operator==(const Grid &other) const
+  bool operator==(const Grid &other) const noexcept
   {
     // compare every element
     return omap == other.omap;
   }
 
-  bool operator!=(const Grid &other) const
+  bool operator!=(const Grid &other) const noexcept
   {
     // compare every element
     return omap != other.omap;
+  }
+
+  inline void check_bounds(const size_t i, const size_t j) const
+  {
+    // check if i or j out of bounds
+    if (i >= m || j >= n)
+    {
+      throw out_of_range(
+          "Grid Error: Index out of bounds! "
+          "Tried to access (" +
+          to_string(i) + ", " + to_string(j) +
+          "), but grid is only " + to_string(m) + "x" + to_string(n));
+    }
+  }
+
+  size_t sum() const
+  {
+    size_t s = 0;
+    for (auto i = 0; i < m; ++i)
+      for (auto j = 0; j < m; ++j)
+        s += get_bit(i, j);
+    return s;
   }
 
   static Grid from_str_vec(const vector<string> &str_gift)
@@ -96,7 +175,7 @@ struct Grid
       for (const auto &c : v)
       {
         // set to true if hash
-        g.omap[i][j] = c == '#';
+        g.set_bit(i, j, c == '#');
         ++j;
       }
       ++i;
@@ -200,7 +279,7 @@ void read_input(const string &fname,
   }
 
   cout << "\n"
-       << "max grid size: " << max_gs << "( " << max_gs / 8 + ( ( max_gs % 8 ) > 0 ) << " Byte )" << "\n\n";
+       << "max grid size: " << max_gs << "( " << max_gs / 8 + ((max_gs % 8) > 0) << " Byte )" << "\n\n";
 }
 
 vector<vector<Grid>> create_grid_transmutations(const vector<Grid> &grids)
@@ -212,14 +291,14 @@ vector<vector<Grid>> create_grid_transmutations(const vector<Grid> &grids)
   for (const auto &g : grids)
   {
 
-    transmutations.push_back({g});
+    transmutations.push_back({});
     auto &tb = transmutations.back();
 
     auto _g = g,
          mirror_g = g;
     mirror_g.mirror();
 
-    for (auto i = 0; i < 3; ++i)
+    for (auto i = 0; i < 4; ++i)
     {
       for (const auto &gr : {_g, mirror_g})
         if (find(tb.begin(), tb.end(), gr) == tb.end())
@@ -256,7 +335,7 @@ void print_grids(const vector<vector<Grid>> &grids)
 
         auto &s = block[i];
         for (auto j = 0; j < g.get_n(); ++j)
-          s += (g.omap[i][j] ? '#' : ' ');
+          s += (g.get_bit(i, j) ? '#' : ' ');
         s += "  |";
         if (gi < gr.size() - 1)
           s += "  ";
@@ -295,6 +374,32 @@ void print_grids(const vector<vector<Grid>> &grids)
     cout << l << "\n";
 }
 
+vector<bool> filter_grid_riddle_by_sums(const vector<Grid> &gifts, const vector<Grid> &grids, const vector<vector<size_t>> &gifts_per_grid)
+{
+
+  vector<bool> fits;
+  fits.reserve(grids.size());
+  vector<size_t> grid_sums;
+
+  transform(gifts.begin(), gifts.end(), back_inserter(grid_sums), [](const auto &g)
+            { return g.sum(); });
+
+  for (auto i = 0; i < grids.size(); ++i)
+  {
+    auto &grid = grids[i];
+    auto &gpg = gifts_per_grid.at(i);
+
+    vector<size_t> gift_idx(gpg.size());
+    iota(gift_idx.begin(), gift_idx.end(), 0);
+
+    fits.push_back(transform_reduce(gift_idx.begin(), gift_idx.end(), 0, [](const auto &a, const auto &b)
+                                    { return a + b; }, [&gpg, &grid_sums](const auto &i)
+                                    { return gpg[i] * grid_sums[i]; }) <= grid.grid_size());
+  }
+
+  return fits;
+}
+
 int main(int argc, char **argv)
 {
   string fname = "input.txt";
@@ -309,9 +414,17 @@ int main(int argc, char **argv)
   read_input(fname, gifts, grids, gifts_per_grid);
 
   // solve riddle
-  auto transmut = create_grid_transmutations(gifts);
+  const auto transmut = create_grid_transmutations(gifts);
 
   print_grids(transmut);
+
+  // ================================== PART1 ==================================
+  // as it turns out on reddit, simply checking sums is enough...
+  const auto fits = filter_grid_riddle_by_sums(gifts, grids, gifts_per_grid);
+
+  cout << "Trivial test allows " << accumulate(fits.begin(), fits.end(), 0) << " to be fit into the grids\n";
+
+  // ================================== PART2 ==================================
 
   return 0;
 }
